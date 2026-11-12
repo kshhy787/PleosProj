@@ -10,16 +10,16 @@
 
 | 부분 | 상태 |
 | --- | --- |
-| 호스트 엔진과 데모 주행 (`core`) | 단위 테스트 133개 통과. Kotlin 2.2.10으로 컴파일해 JVM에서 실행했고, 2026-11-12에 Gradle(`testMockDebugUnitTest`)로도 133개 모두 통과했다. 서울 → 강릉 데모를 처음부터 끝까지 돌리는 테스트 포함. |
-| 앱 화면, 음성 래퍼, `mock` 플랫폼 | 2026-11-12에 Pleos Connect 에뮬레이터(Android 14, API 34)에서 `mockDebug`로 데모 주행을 출발부터 도착까지 돌렸다. 앱 창 1682×1210dp에서 주행 카드와 정차 화면(점수, 경로 그림)이 잘리지 않고 그려졌고, 장면은 [데모 대본](docs/demo-script.md)의 시각과 1~2초 안에서 맞았다. 강제 종료는 없었고 앱이 남긴 경고나 오류 로그도 없었다. **소리는 나지 않았다.** 이 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 자막으로만 진행했다(아래 "문제가 생기면"). **표준 Automotive 에뮬레이터에서는 실행해 보지 못했고, 마이크와 음성 인식도 써 보지 않았다**(자동 응답을 켠 채 돌렸다). |
-| Gradle 빌드 설정 | 2026-11-12에 Windows의 JDK 17에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
+| 호스트 엔진과 데모 주행 (`core`) | 단위 테스트 133개 통과. Kotlin 2.2.10으로 컴파일해 JVM에서 실행했다. 2026-11-12에는 Gradle(`testMockDebugUnitTest`)로도 돌려 모두 통과했다. 서울 → 강릉 데모를 처음부터 끝까지 돌리는 테스트 포함. |
+| 앱 화면, 음성 래퍼, `mock` 플랫폼 | 2026-11-12에 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)에서 `mockDebug`로 데모 주행을 출발부터 도착까지 돌렸다. 앱 창은 1682×1210dp였고, 데모 패널을 연 채 찍은 화면(주행 중 다섯 장, 정차 중 두 장)에서 카드와 정차 화면(점수판, 경로 그림, 바로가기 버튼)이 잘리지 않고 그려졌다. 찍힌 자막은 모두 한 줄이었다. 앱이 꺼진 적은 없었고, 앱 로그(`Gildongmu` 태그)에 경고나 오류도 없었다. **소리는 내지 못했다.** 이 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 자막으로만 진행했다(아래 "문제가 생기면"). 맞춰 본 장면(출발 후 화면 네 장, 정차·재출발·도착)은 [데모 대본](docs/demo-script.md)의 시각과 2초 안에서 맞았다. 다만 자막만으로 진행하면 문장마다 대본과 같은 추정 시간을 쓰므로, 실제 음성으로 말할 때도 맞는지는 아직 모른다. **표준 Automotive 에뮬레이터에서는 실행해 보지 못했다.** 마이크와 음성 인식도 써 보지 않았다(자동 응답을 켠 채 돌렸다). |
+| Gradle 빌드 설정 | 2026-11-12에 Windows에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 이때 Gradle 데몬은 `JAVA_HOME`의 JDK 17이 아니라 Android Studio에 든 JetBrains Runtime 25로 돌았다. Android Studio로 처음 연 직후에 생긴 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. **JDK 17만으로는 빌드해 보지 않았다.** 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
 | `pleos` 플랫폼 (SDK 어댑터) | 공개 가이드 문서를 보고 작성했고 **SDK에 대해 컴파일해 보지 못했다.** 기본값으로 꺼져 있다. 확인할 항목은 [docs/pleos-integration.md](docs/pleos-integration.md). |
 | 콘텐츠 파이프라인 (`pipeline`) | 테스트 49개 통과(위키백과·TourAPI·Claude를 대역으로 바꿔 실행). **실제 API로는 돌려 보지 못했다.** |
 | 번들 콘텐츠 (서울 → 강릉) | 이야기와 퀴즈는 손으로 쓰고 위키백과 문서와 대조했다. **경로선과 장소·휴게소 좌표, 충전기 유무는 데모용 근사값이다.** |
 
 ## 실행하기
 
-Android Studio와 Automotive 에뮬레이터(API 34, "Android Automotive with Google APIs x86_64", 기기 프로필 "Automotive (1408p landscape)")가 필요하다. Pleos Connect 에뮬레이터에서도 실행되지만, 그 이미지에서는 소리 없이 자막으로만 진행된다(아래 "문제가 생기면").
+Android Studio와 Automotive 에뮬레이터(API 34, "Android Automotive with Google APIs x86_64", 기기 프로필 "Automotive (1408p landscape)")가 필요하다. 다만 지금까지 실행해 본 것은 Pleos Connect 에뮬레이터(API 34)뿐이고, 위 표준 에뮬레이터에서는 아직 실행해 보지 못했다. Pleos Connect 이미지에서는 `mock` 빌드가 소리 없이 자막으로만 진행된다(아래 "문제가 생기면").
 
 1. 이 폴더를 한글과 공백이 없는 짧은 경로에 둔다. 예: `C:\dev\gildongmu`
 2. Android Studio에서 **Open**으로 이 폴더를 연다. 첫 Gradle sync는 Gradle 9.3.1, Android Gradle Plugin 9.1.1, SDK Platform 36, Build-Tools를 내려받는다.
@@ -48,9 +48,9 @@ gradlew.bat assembleMockRelease        제출용 APK (apk/README.md 참고)
 - **패널 숨기기**: 카드만 남긴다. 왼쪽 위 목적지 글자를 길게 누르면 다시 나온다.
 - **진단**: 패널 맨 아래에 창 크기와 배치, 음성 엔진의 상태, 음성 인식 유무, 기기와 빌드 날짜가 작은 글씨로 나온다. 무언가 안 될 때 이 부분이 보이게 화면을 찍으면 원인을 바로 알 수 있다. 같은 내용이 Logcat에 `진단:`으로 시작하는 줄로도 남는다.
 
-화면은 주어진 창 크기에 맞춰 배치를 바꾼다. 넓은 화면에서는 카드와 패널이 나란히 놓이고, 분할 화면처럼 좁은 창에서는 카드가 위, 패널이 아래로 간다. 낮거나 좁은 창에서는 카드 글씨가 작아지고 자막 줄 수가 늘어난다.
+화면은 주어진 창 크기에 맞춰 배치를 바꾼다. 넓은 화면에서는 카드와 패널이 나란히 놓이고, 분할 화면처럼 좁은 창에서는 카드가 위, 패널이 아래로 간다. 낮거나 좁은 창에서는 카드 글씨가 작아진다. 자막은 낮은 창에서는 두 줄로 줄고, 좁은 창에서는 네 줄까지 늘어난다.
 
-에뮬레이터에 한국어 음성이 없으면 호스트는 소리 없이 자막만으로 진행하고, 패널의 "말하기" 줄에 이유가 표시된다. 음성 엔진이 있어도 실제로 소리를 내지 못하고 문장을 바로 끝냈다고 알려 오는 경우가 있는데, 그때도 문장을 읽을 시간만큼 자막을 띄워 둔다. 음성을 들으려면 에뮬레이터의 설정 → 시스템 → 언어 및 입력 → 텍스트 음성 변환 출력에서 한국어 음성 데이터를 설치한다. Automotive 이미지에 음성 엔진이 들어 있는지는 확인하지 못했다. 그 메뉴에 엔진이 없으면 이 이미지에서는 자막으로만 진행된다.
+에뮬레이터에 한국어 음성이 없으면 호스트는 소리 없이 자막만으로 진행하고, 패널의 "말하기" 줄에 이유가 표시된다. 음성 엔진이 있어도 실제로 소리를 내지 못하고 문장을 바로 끝냈다고 알려 오는 경우가 있는데, 그때도 문장을 읽을 시간만큼 자막을 띄워 둔다. 음성을 들으려면 에뮬레이터의 설정 → 시스템 → 언어 및 입력 → 텍스트 음성 변환 출력에서 한국어 음성 데이터를 설치한다. 표준 Automotive 이미지에 음성 엔진이 들어 있는지는 확인하지 못했다. 그 메뉴에 엔진이 없으면 그 이미지에서는 자막으로만 진행된다. Pleos Connect 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 `mock` 빌드가 자막으로만 진행된다(아래 "문제가 생기면").
 
 음성 엔진이 예상보다 느려 이야기가 다음 장면에 밀리면, 대본의 해당 구간 `timeScale`을 낮춘다.
 
@@ -135,8 +135,8 @@ python -m gildongmu_pipeline check ../app/src/main/assets/routes/seoul-gangneung
 - **Gradle sync 실패**: 메시지 전문이 필요하다. AGP 버전을 문제 삼으면 최상위 `build.gradle.kts`의 버전을, Gradle 버전을 문제 삼으면 `gradle/wrapper/gradle-wrapper.properties`의 버전을 메시지가 권하는 값으로 바꾼다.
 - **앱이 바로 꺼짐**: Android Studio의 Logcat 창에서 `AndroidRuntime` 또는 `Gildongmu`로 걸러 나오는 오류 전문이 필요하다.
 - **카드나 자막이 안 보임**: 패널 맨 아래 "진단"의 "화면" 줄이 보이게 화면을 찍는다. 창 크기와 배치가 적혀 있다.
-- **Pleos 에뮬레이터에서 소리가 안 남**: `mock` 빌드는 Android의 표준 음성 API(`TextToSpeech`)로 말한다. 진단의 "말하기" 줄에 "Android 엔진 0개"라고 나오면 그 API가 쓸 수 있는 엔진이 없다는 뜻이고, `mock` 빌드로는 소리를 낼 수 없다. Pleos Connect 에뮬레이터(API 34)가 그렇다. 음성 서비스(`ai.pleos.playground.caas`의 `SpeechService`)가 들어 있기는 하지만 인텐트 필터에 DEFAULT 카테고리가 없어서, 엔진을 `MATCH_DEFAULT_ONLY`로 찾는 `TextToSpeech`에는 보이지 않는다. 엔진 이름을 직접 지정해도 마찬가지이고, 앱 매니페스트로는 바꿀 수 없다. Pleos 에뮬레이터에서 소리를 내려면 Pleos TextToSpeech SDK를 쓰는 `pleos` 빌드가 필요하다. `pleos` 빌드에는 같은 대본 주행을 차량 음성으로 돌리는 기능이 있다([docs/pleos-integration.md](docs/pleos-integration.md)).
-- **소리가 안 남**: 위 "데모 주행"의 한국어 음성 설치를 본다. 에뮬레이터 볼륨도 확인한다. Automotive 이미지에 음성 엔진이 없어서 소리를 낼 수 없다면, Google 음성 엔진이 든 일반 태블릿 에뮬레이터(가로 화면)에 같은 앱을 실행하는 방법이 있다. 이 방법은 시험해 보지 못했다.
+- **Pleos 에뮬레이터에서 소리가 안 남**: `mock` 빌드는 Android의 표준 음성 API(`TextToSpeech`)로 말한다. 진단의 "말하기" 줄에 "Android 엔진 0개"라고 나오면 그 API가 쓸 수 있는 엔진이 없다는 뜻이고, `mock` 빌드로는 소리를 낼 수 없다. 2026-11-12에 쓴 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)가 그렇다. 음성 서비스(`ai.pleos.playground.caas`의 `SpeechService`)가 들어 있기는 하지만 인텐트 필터에 DEFAULT 카테고리가 없어서, 엔진을 `MATCH_DEFAULT_ONLY`로 찾는 `TextToSpeech`에는 보이지 않는다. `adb shell cmd package query-services --query-flags 65536 -a android.intent.action.TTS_SERVICE`(65536이 `MATCH_DEFAULT_ONLY`)가 "No services found"를 내면 이 경우다. Android 14 소스를 보면 엔진 이름을 직접 지정해도 같은 방식으로 찾으므로 마찬가지이고, 빠진 것은 Pleos 서비스 쪽 인텐트 필터라서 앱 매니페스트로는 바꿀 수 없다. 이 두 가지는 소스를 읽고 내린 결론이고, 에뮬레이터에서 시험해 보지는 않았다. Pleos 에뮬레이터에서 소리를 내려면 Pleos TextToSpeech SDK를 쓰는 `pleos` 빌드가 필요하다. `pleos` 빌드에는 같은 대본 주행을 차량 음성으로 돌리는 기능이 있다([docs/pleos-integration.md](docs/pleos-integration.md)).
+- **소리가 안 남**: 위 "데모 주행"의 한국어 음성 설치를 본다. 에뮬레이터 볼륨도 확인한다. 표준 Automotive 이미지에 음성 엔진이 없어서 소리를 낼 수 없다면, Google 음성 엔진이 든 일반 태블릿 에뮬레이터(가로 화면)에 같은 앱을 실행하는 방법이 있다. 이 방법은 시험해 보지 못했다.
 - **말을 못 알아들음**: 먼저 패널에서 자동 응답을 끈다. 켜져 있으면 마이크를 쓰지 않는다. 그다음 에뮬레이터 확장 컨트롤의 Microphone에서 호스트 마이크 사용을 켜고, 앱에 마이크 권한을 준다. 패널의 "듣기" 줄이 "음성 인식 없음"이면 그 이미지에는 인식 서비스가 없는 것이니 버튼을 쓴다. 마이크는 호스트가 질문한 뒤에만 열린다(아래 "알려진 한계").
 
 ## 알려진 한계
@@ -145,7 +145,7 @@ python -m gildongmu_pipeline check ../app/src/main/assets/routes/seoul-gangneung
 - **경로가 바뀌는 경우를 처리하지 않는다.** 위치는 패키지에 든 경로선을 기준으로 잰다. 내비가 경로를 다시 잡거나 다른 길로 가면 이야기 위치가 맞지 않는다.
 - **경로가 하나다.** 서울 → 강릉 한 방향의 패키지만 들어 있다. 출발할 때 경로에 맞는 패키지를 받아 오는 서버는 만들지 않았다.
 - **`pleos` 빌드에는 회전 안내 연동, 주차 상태 읽기, 조명 연출이 빠져 있다.** [docs/pleos-integration.md](docs/pleos-integration.md)에 적었다.
-- **화면 배치는 창 크기 하나에서만 눈으로 확인했다.** Pleos Connect 에뮬레이터의 1682×1210dp 창에서 주행 중(카드와 패널 나란히, 큰 카드)과 정차 중(작은 카드, 점수와 경로 그림) 화면을 봤다. 분할 화면처럼 좁거나 낮은 창에서 쓰는 배치(위아래로 쌓기, 좁은 카드)는 규칙만 테스트했고 그려진 모습은 보지 못했다.
+- **화면 배치는 창 크기 하나에서, 데모 패널을 연 상태로만 눈으로 확인했다.** Pleos Connect 에뮬레이터의 1682×1210dp 창에서 주행 중 화면(카드와 패널이 나란히, 큰 카드)과 정차 화면(작은 카드, 점수판과 경로 그림)을 봤다. 패널을 숨겨 카드가 창 너비를 다 쓰는 화면(`pleos` 빌드는 늘 이 배치다)과, 분할 화면처럼 좁거나 낮은 창의 배치(카드가 위, 패널이 아래로 가는 배치, 자막이 네 줄까지 늘어나는 좁은 카드, 주행 중의 작은 카드, 경로 그림이 빠진 정차 화면)는 규칙만 테스트했고 그려진 모습은 보지 못했다.
 
 ## 데이터 출처
 
