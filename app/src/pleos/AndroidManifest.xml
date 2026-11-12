@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Added to the main manifest for the "pleos" flavor only. Each permission is the one the Pleos
+    Connect documentation names for the SDK calls this app makes; every one of them has to be
+    approved for the app in the Pleos App Market before release.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- TextToSpeech / SpeechToText in server or hybrid mode. On-device mode needs no network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- NaviHelper: route and destination information; adding a waypoint. -->
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
+
+    <!-- Vehicle SDK: Odometer (trip time and distance). -->
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+
+    <!-- Vehicle SDK: EvBattery (state of charge, charging). -->
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+
+    <!-- FusedLocation. -->
+    <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
+
+</manifest>

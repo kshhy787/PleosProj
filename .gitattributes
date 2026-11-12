@@ -1,0 +1,6 @@
+# The same line endings on every machine: the Unix wrapper script has to stay LF and the Windows
+# one CRLF, whatever the checkout settings are.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.apk binary

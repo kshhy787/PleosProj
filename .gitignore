@@ -1,0 +1,25 @@
+# Gradle and Android Studio
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# Keys never belong in the repository
+*.jks
+*.keystore
+.env
+
+.DS_Store
+Thumbs.db

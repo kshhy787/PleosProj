@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- An in-car app: it is only offered to, and only makes sense on, Android Automotive OS. -->
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="true" />
+
+    <!-- Passengers answer the host by voice. Without a microphone the app still plays its content. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- Lets the app find the device's speech services (package visibility, Android 11 and later). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!--
+            configChanges: the car switches between day and night mode while driving, and the
+            activity must not be torn down and rebuilt in the middle of a sentence when it does.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+                The now-playing card is designed to be used while driving: one glanceable card,
+                one large button, no text entry and no lists. Everything else is parked-only.
+            -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+    </application>
+
+</manifest>
