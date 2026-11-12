@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A winding road ending in a warm dot: the route, and the companion at the end of it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#1F6FEB"
+        android:pathData="M28,8h52a20,20 0 0 1 20,20v52a20,20 0 0 1 -20,20h-52a20,20 0 0 1 -20,-20v-52a20,20 0 0 1 20,-20z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M36,86C36,64 72,66 72,46C72,36 62,31 54,31"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="#FFD54A"
+        android:pathData="M54,31m-9,0a9,9 0 1,0 18,0a9,9 0 1,0 -18,0" />
+</vector>

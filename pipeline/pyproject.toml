@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gildongmu-pipeline"
+version = "0.1.0"
+description = "Builds route packages for the Gildongmu road-trip host: places along a route, and a story and quiz for each"
+requires-python = ">=3.10"
+dependencies = ["anthropic>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+gildongmu-pipeline = "gildongmu_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gildongmu_pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

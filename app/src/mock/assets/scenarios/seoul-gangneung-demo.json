@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "route": "seoul-gangneung",
+  "about": "서울 → 강릉을 약 6분으로 압축한 데모 주행입니다. legs의 kph는 주행 시간 계산에, timeScale은 실제 재생 속도에 쓰입니다(1초에 kph × timeScale ÷ 3600 km 이동). 이야기가 나오는 구간은 느리게, 빈 구간은 빠르게 지나갑니다. 음성 엔진이 느려서 이야기가 잘리면 해당 구간의 timeScale을 낮추세요.",
+  "timeScale": 40,
+  "players": ["첫째", "둘째"],
+  "quizQuestionsPerRound": 2,
+  "onlyPois": ["yeongneung", "chiaksan", "bongpyeong", "daegwallyeong", "ojukheon"],
+  "battery": {
+    "startPercent": 62,
+    "kmPerPercent": 4.5
+  },
+  "legs": [
+    { "untilKm": 64, "kph": 55, "timeScale": 170 },
+    { "untilKm": 108.5, "kph": 60, "timeScale": 27 },
+    { "untilKm": 118.5, "kph": 66, "timeScale": 8.7 },
+    { "untilKm": 127, "kph": 66, "timeScale": 55 },
+    { "untilKm": 181.5, "kph": 95, "timeScale": 114 },
+    { "untilKm": 189, "kph": 80, "timeScale": 20 },
+    { "untilKm": 197.5, "kph": 80, "timeScale": 68 },
+    { "untilKm": 203.5, "kph": 40, "timeScale": 27 },
+    { "untilKm": 999, "kph": 40, "timeScale": 90 }
+  ],
+  "events": [
+    { "atKm": 72, "say": "퀴즈 하자" },
+    { "atKm": 110.5, "turnDistanceM": 300, "holdSeconds": 6 }
+  ],
+  "stops": [
+    {
+      "stop": "hoengseong",
+      "seconds": 110,
+      "chargeTo": 80
+    }
+  ],
+  "autoReplies": {
+    "delayMs": 1800,
+    "yesNo": "응",
+    "quiz": ["correct", "wrong", "correct", "correct"]
+  }
+}
