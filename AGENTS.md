@@ -14,14 +14,42 @@ business sense.
 
 ## Where things stand
 
-The code was written without access to an Android build environment. Be precise about this when
-you report results, and update `README.md` ("지금 상태") when any of it changes.
+The code was written without access to an Android build environment. On 2026-11-12, on a
+Windows PC, Gradle was run for the first time (it built `mockDebug` and ran the unit tests) and the
+app was run on an emulator for the first time; the list says what that covered. Be precise about
+what has and has not been verified when you report results, and update `README.md` ("지금 상태")
+when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
-  Seoul → Gangneung drive. This is the part to trust.
-- Android code (`app.gildongmu.host`, the `mock` source set): typechecked only. If something on
-  screen or in speech misbehaves, suspect this layer first, not the core.
-- Gradle build files: written from the official compatibility tables, not executed by the author.
+  Seoul → Gangneung drive. All 133 tests also pass through Gradle (`testMockDebugUnitTest`). This
+  is the part to trust.
+- Android code (`app.gildongmu.host`, the `mock` source set): run on 2026-11-12 as `mockDebug` on
+  the Pleos Connect emulator (Android 14, API 34, image `release_connect_v2.1.0`), in a
+  1682×1210 dp window with the demo panel open. The whole scripted drive played to Gangneung; the
+  app never crashed, and its own log (tag `Gildongmu`) had no warnings or errors. In the seven
+  screenshots taken after **주행 시작**, the card and the parked panel drew without clipping, and
+  every caption in them fit on one line. Seven moments were compared with `docs/demo-script.md`
+  (the captions at about 10, 20, 30 and 40 s, and the switches to the parked panel, back and to
+  arrival) and all came within two seconds of it. That proves little, because without a voice
+  each sentence lasts its estimated time, the same estimate the script was made with. The app had
+  no voice: Android's `TextToSpeech` finds no engine on that image (`README.md`, "문제가 생기면"),
+  so the run was captions only and no sentence was ever handed to an engine. The speaking path
+  (playback, its progress reports, audio focus) has therefore never run on a device. Not tried
+  yet: the stock Automotive emulator; the microphone and speech recognition (**자동 응답** in the
+  side panel stayed on); any button other than **주행 시작**. Two kinds of layout have been tested
+  only as rules and never seen on a screen: the card alone at full width with the panel hidden
+  (the only layout the pleos build uses), and the layouts for narrow or low windows. If something
+  on screen or in speech misbehaves, suspect this layer first, not the core.
+- Gradle build files: on 2026-11-12 `assembleMockDebug` and `testMockDebugUnitTest` succeeded on
+  Windows (Gradle 9.3.1, AGP 9.1.1). The Gradle daemon ran on the JetBrains Runtime 25 that comes
+  with Android Studio, not on the JDK 17 in `JAVA_HOME`. The daemon's JDK is set by
+  `gradle/gradle-daemon-jvm.properties` (`toolchainVersion=25`), a file that appeared when Android
+  Studio first opened the project and is committed, so every checkout has it. The command-line
+  builds reused the daemon Android Studio had started; none has started a daemon of its own, so
+  how a command-line build finds Java 25 without Android Studio is untested. Whether to keep the
+  file is not decided; until it is, leave it alone like the other build tool versions. The build
+  has not been tried with JDK 17 alone. `assembleMockRelease` and the pleos build have not been
+  run.
 - `pleos` source set (the Pleos Connect SDK adapters): never compiled against the real SDK. Off
   by default. `docs/pleos-integration.md` lists every assumption to check, file by file.
 - `pipeline/` (Python): tested with stand-ins for Wikipedia, TourAPI and Claude; never run live.
@@ -55,8 +83,10 @@ gradlew.bat assembleMockDebug            debug APK, mock build
 gradlew.bat assembleMockRelease          release APK (see apk/README.md)
 ```
 
-The default variant is `mockDebug`. It runs on any Android Automotive emulator and needs no SDK
-beyond Android's. In the app, press **주행 시작** in the side panel to start the scripted drive.
+The default variant is `mockDebug`. It needs no SDK beyond Android's. It is meant for the
+Automotive emulator that `README.md` ("실행하기") names, but so far it has only run on the Pleos
+Connect emulator, where the demo is captions only. In the app, press **주행 시작** in the side
+panel to start the scripted drive.
 
 To look at a running emulator from a terminal:
 
@@ -66,6 +96,10 @@ adb shell screencap -p /sdcard/screen.png        screenshot, then:
 adb pull /sdcard/screen.png
 adb shell am start -n app.gildongmu.host/.MainActivity
 ```
+
+From Git Bash, put `MSYS_NO_PATHCONV=1` in front of these: otherwise Git Bash rewrites
+`/sdcard/screen.png` into a Windows path and `screencap` fails. With the prefix, give local paths
+in Windows form (`cygpath -w` converts one).
 
 The mock build writes a line starting `진단:` to the log (tag `Gildongmu`) and shows the same
 facts at the bottom of the side panel: window size in dp and the arrangement chosen for it, the
@@ -97,18 +131,26 @@ that line before guessing why something is silent or invisible.
 
 In this order. Each item says how to tell it is done.
 
-1. **See the demo run on the emulator.** Build `mockDebug`, start it, press 주행 시작, take a
-   screenshot and read the `진단:` line. Done when the card with the title and the caption is
-   readable and the drive reaches Gangneung (about six and a half minutes).
-2. **Get a voice.** The mock build speaks through Android's own text-to-speech engine. The stock
-   Automotive image and the Pleos image may not have one (`Android 엔진 0개` in the diagnostics);
-   then the demo is captions only, by design. On the Pleos emulator the voice comes from the
-   Pleos TextToSpeech SDK: set `gildongmu.pleos=true` in `gradle.properties`, build `pleosDebug`,
+1. **See the demo run on the emulator.** Done on 2026-11-12, on the Pleos Connect emulator: the
+   card's title and caption were readable and the drive reached Gangneung about six minutes after
+   주행 시작, with captions only. To repeat it: build `mockDebug`, start it, press 주행 시작, take
+   a screenshot and read the `진단:` line.
+2. **Get a voice.** The mock build speaks through Android's `TextToSpeech`, which needs an engine
+   on the image. On the Pleos Connect image used on 2026-11-12 (`release_connect_v2.1.0`) it finds
+   none (`Android 엔진 0개` in the diagnostics): the image's speech service (`SpeechService` in
+   `ai.pleos.playground.caas`) has no DEFAULT category in its intent filter, and `TextToSpeech`
+   only finds engines that have one. From the Android 14 source, naming the engine would not help
+   and the app's manifest cannot fix it; neither has been tried on the device. Whether the stock
+   Automotive image has an engine is still unknown. Without one the demo is captions only, by
+   design. On the Pleos emulator the voice is meant to come from the Pleos TextToSpeech SDK, which
+   has not been tried yet: set `gildongmu.pleos=true` in `gradle.properties`, build `pleosDebug`,
    and fix the compile errors against the real SDK using `docs/pleos-integration.md`. Start with
-   `PleosSpeaker.kt`; it is small. In the pleos build, press and hold the destination at the
-   top left to start the same scripted drive in the car's voice (`PleosPlatform.startDemoDrive`).
-   Done when the briefing is heard.
+   `PleosSpeaker.kt`; it is small. In the pleos build, press and hold the destination at the top
+   left to start the same scripted drive in the car's voice (`PleosPlatform.startDemoDrive`). Done
+   when the briefing is heard; an AI assistant cannot hear the emulator, so ask the user.
 3. **Record the demo and build the APK.** `docs/demo-script.md` has the transcript with timings
    and a suggested short cut. The release APK goes in `apk/` under the name the contest asks for.
+   Until item 2 is done, a recording on the Pleos Connect emulator is captions only. So is the
+   release APK on that emulator, because it is the mock build (see `apk/README.md`).
 4. **Wire up what the pleos build still lacks**: turn-by-turn prompts (`onTBTInfo`), a real
    parked signal, the cabin light. `docs/pleos-integration.md` has the list.

@@ -12,7 +12,7 @@
 | --- | --- |
 | 호스트 엔진과 데모 주행 (`core`) | 단위 테스트 133개 통과. Kotlin 2.2.10으로 컴파일해 JVM에서 실행했다. 2026-11-12에는 Gradle(`testMockDebugUnitTest`)로도 돌려 모두 통과했다. 서울 → 강릉 데모를 처음부터 끝까지 돌리는 테스트 포함. |
 | 앱 화면, 음성 래퍼, `mock` 플랫폼 | 2026-11-12에 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)에서 `mockDebug`로 데모 주행을 출발부터 도착까지 돌렸다. 앱 창은 1682×1210dp였고, 데모 패널을 연 채 찍은 화면(주행 중 다섯 장, 정차 중 두 장)에서 카드와 정차 화면(점수판, 경로 그림, 바로가기 버튼)이 잘리지 않고 그려졌다. 찍힌 자막은 모두 한 줄이었다. 앱이 꺼진 적은 없었고, 앱 로그(`Gildongmu` 태그)에 경고나 오류도 없었다. **소리는 내지 못했다.** 이 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 자막으로만 진행했다(아래 "문제가 생기면"). 맞춰 본 장면(출발 후 화면 네 장, 정차·재출발·도착)은 [데모 대본](docs/demo-script.md)의 시각과 2초 안에서 맞았다. 다만 자막만으로 진행하면 문장마다 대본과 같은 추정 시간을 쓰므로, 실제 음성으로 말할 때도 맞는지는 아직 모른다. **표준 Automotive 에뮬레이터에서는 실행해 보지 못했다.** 마이크와 음성 인식도 써 보지 않았다(자동 응답을 켠 채 돌렸다). |
-| Gradle 빌드 설정 | 2026-11-12에 Windows에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 이때 Gradle 데몬은 `JAVA_HOME`의 JDK 17이 아니라 Android Studio에 든 JetBrains Runtime 25로 돌았다. Android Studio로 처음 연 직후에 생긴 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. **JDK 17만으로는 빌드해 보지 않았다.** 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
+| Gradle 빌드 설정 | 2026-11-12에 Windows에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 이때 Gradle 데몬은 `JAVA_HOME`의 JDK 17이 아니라 Android Studio에 든 JetBrains Runtime 25로 돌았다. Android Studio로 처음 연 직후에 생긴 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 명령줄 빌드도 Android Studio가 띄워 둔 이 데몬을 같이 썼다. **JDK 17만으로는 빌드해 보지 않았다.** 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
 | `pleos` 플랫폼 (SDK 어댑터) | 공개 가이드 문서를 보고 작성했고 **SDK에 대해 컴파일해 보지 못했다.** 기본값으로 꺼져 있다. 확인할 항목은 [docs/pleos-integration.md](docs/pleos-integration.md). |
 | 콘텐츠 파이프라인 (`pipeline`) | 테스트 49개 통과(위키백과·TourAPI·Claude를 대역으로 바꿔 실행). **실제 API로는 돌려 보지 못했다.** |
 | 번들 콘텐츠 (서울 → 강릉) | 이야기와 퀴즈는 손으로 쓰고 위키백과 문서와 대조했다. **경로선과 장소·휴게소 좌표, 충전기 유무는 데모용 근사값이다.** |
@@ -26,13 +26,15 @@ Android Studio와 Automotive 에뮬레이터(API 34, "Android Automotive with Go
 3. 기기 목록에서 Automotive 에뮬레이터를 고르고 **Run**을 누른다. Build Variant는 기본값 `mockDebug`다.
 4. 앱이 뜨면 오른쪽 패널의 **주행 시작**을 누른다.
 
-명령줄에서는 다음과 같다. Android Studio에서 한 번 연 뒤에는 SDK 위치가 `local.properties`에 적혀 있어서 그대로 된다. JDK 17 이상이 필요한데, 따로 설치하지 않았다면 `JAVA_HOME`을 Android Studio에 든 JDK로 잡는다(Windows 기본 위치는 `C:\Program Files\Android\Android Studio\jbr`).
+명령줄에서는 다음과 같다. Android Studio에서 한 번 연 뒤에는 SDK 위치가 `local.properties`에 적혀 있어서 그대로 된다. `gradlew.bat`은 `JAVA_HOME`(없으면 PATH)에 있는 Java로 실행된다. 따로 설치한 JDK가 없다면 `JAVA_HOME`을 Android Studio에 든 JDK로 잡는다(Windows 기본 위치는 `C:\Program Files\Android\Android Studio\jbr`). 2026-11-12에는 JDK 17로 실행했다. 아래 명령은 명령 프롬프트(cmd) 기준이고, PowerShell에서는 `.\gradlew.bat`, Git Bash에서는 `./gradlew.bat`으로 실행한다.
 
 ```
 gradlew.bat assembleMockDebug          디버그 APK
 gradlew.bat testMockDebugUnitTest      단위 테스트
 gradlew.bat assembleMockRelease        제출용 APK (apk/README.md 참고)
 ```
+
+실제로 빌드를 돌리는 Gradle 데몬은 `JAVA_HOME`과 상관없이 Java 25로 돈다. 저장소에 든 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 이 요구 조건은 `gradlew.bat --version`의 "Daemon JVM" 줄에 나온다. 2026-11-12의 명령줄 빌드는 모두 Android Studio가 JetBrains Runtime 25로 띄워 둔 데몬을 같이 썼고, 명령줄 빌드가 데몬을 직접 띄운 적은 없다. Android Studio의 데몬이 없을 때 명령줄 빌드가 Java 25를 어디서 찾는지, 못 찾으면 어떻게 되는지는 확인하지 못했다. 그때는 그 파일에 적힌 주소에서 Java 25를 내려받으려 할 수 있다.
 
 ## 데모 주행
 

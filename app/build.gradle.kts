@@ -18,7 +18,7 @@ android {
     }
 
     // One app, two ways of talking to a car:
-    //   mock  - a scripted drive and Android's own speech services; runs on any Automotive emulator
+    //   mock  - a scripted drive and Android's own speech services; needs no car and no vendor SDK
     //   pleos - the Pleos Connect SDK; exists only when gildongmu.pleos=true in gradle.properties
     flavorDimensions += "platform"
     productFlavors {
