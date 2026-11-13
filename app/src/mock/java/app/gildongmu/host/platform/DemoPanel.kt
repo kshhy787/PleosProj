@@ -38,6 +38,7 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
     private val hearing = line()
     private val voice = line()
     private val passenger = Ui.text(context, 20f, Palette.WARM, bold = true)
+    private val diagnostics = Ui.text(context, 13f, Palette.TEXT_SECONDARY)
     private val answerRow: LinearLayout = Ui.row(context)
 
     private var autoReplies = true
@@ -91,6 +92,11 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
         column.addView(voice)
         column.addView(hearing)
 
+        column.addView(heading("진단"), spaced(18))
+        diagnostics.setLineSpacing(0f, 1.3f)
+        diagnostics.setPadding(0, Ui.dp(context, 6), 0, 0)
+        column.addView(diagnostics)
+
         val scroll = ScrollView(context)
         scroll.addView(column)
         root = scroll
@@ -134,6 +140,15 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
     fun setListening(mode: ListenMode?, expected: List<String>) {
         expectedAnswer = if (mode == ListenMode.QUIZ_ANSWER) expected.firstOrNull() else null
         Ui.show(answerRow, expectedAnswer != null)
+    }
+
+    /**
+     * Facts about the device and how the app is coping with it, small, at the bottom of the panel.
+     * They are there so that one screenshot says why something is not working.
+     */
+    fun setDiagnostics(lines: List<String>) {
+        val text = lines.joinToString("\n")
+        if (diagnostics.text.toString() != text) diagnostics.text = text
     }
 
     fun showPassenger(text: String) {

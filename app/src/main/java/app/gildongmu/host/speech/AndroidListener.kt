@@ -33,6 +33,13 @@ class AndroidListener(
         get() = SpeechRecognizer.isRecognitionAvailable(context) &&
             context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
+    /** Whether the device can listen at all, in words, for the demo panel's diagnostics. */
+    fun describe(): String {
+        val service = if (SpeechRecognizer.isRecognitionAvailable(context)) "있음" else "없음"
+        val permission = if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) "허용" else "허용 안 됨"
+        return "인식 서비스 $service · 마이크 권한 $permission"
+    }
+
     private val intent: Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")

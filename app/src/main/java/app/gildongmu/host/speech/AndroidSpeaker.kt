@@ -9,22 +9,17 @@ import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import app.gildongmu.core.AudioFocusKeeper
-import app.gildongmu.core.Speech
+import app.gildongmu.core.SpeechGuard
 import java.util.Locale
 
 /**
  * Speaks with Android's own text-to-speech engine. Used by the mock build in place of the Pleos
  * TextToSpeech SDK, which only exists in the car.
  *
- * The host says one sentence, waits to hear that it is finished, and says the next. So whatever
- * the engine does, every sentence handed to [speak] is reported through [onFinished] exactly once
- * unless [stop] cuts it off first:
- *
- *  - No engine, no Korean voice, or an engine that refuses a sentence: the speaker stays silent
- *    for as long as the sentence would have taken, so the captions still tell the story.
- *    [onStatus] reports why, so the screen can say so.
- *  - An engine that never answers, at start-up or after a sentence: the speaker stops waiting
- *    for it after a generous time and carries on.
+ * This class is only the wiring. When a sentence is over is decided by [SpeechGuard], which
+ * copes with a missing engine, a missing Korean voice, and engines that never report or report
+ * without having spoken; when the app holds the audio channel is decided by [AudioFocusKeeper].
+ * Both are plain logic with tests of their own.
  *
  * Must be used from the main thread, where its callbacks also arrive.
  */
@@ -33,19 +28,17 @@ class AndroidSpeaker(
     private val onFinished: (utteranceId: String) -> Unit,
     private val onAudioFocus: (available: Boolean) -> Unit,
     private val onStatus: (message: String?) -> Unit
-) {
+) : Speaker {
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private var closed = false
-    private var initialised = false
-    private var voiceReady = false
-    private var pending: Pair<String, String>? = null
 
-    /** The sentence being spoken, until it is reported as finished or is cut off. */
-    private var speakingId: String? = null
+    // Kept for describe(): what the engine answered when it was set up.
+    private var initStatus: Int? = null
+    private var languageResult: Int? = null
 
-    // The listener and the keeper refer to each other, so both are given their types in full.
+    // These refer to one another, so each is given its type in full.
     private val focusListener: AudioManager.OnAudioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         main.post {
             if (closed) return@post
@@ -56,7 +49,7 @@ class AndroidSpeaker(
                 AudioManager.AUDIOFOCUS_LOSS -> focus.onLost(now)
                 else -> {} // Being ducked under something else is fine: keep talking.
             }
-            keepFocusTicking()
+            keepTicking()
         }
     }
 
@@ -70,10 +63,27 @@ class AndroidSpeaker(
         onAvailable = { available -> onAudioFocus(available) }
     )
 
-    private val focusTick = object : Runnable {
+    private val guard: SpeechGuard = SpeechGuard(
+        say = { utteranceId, text ->
+            focus.beforeSpeaking()
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.SUCCESS
+        },
+        silence = { tts.stop() },
+        onFinished = { utteranceId ->
+            focus.afterSpeaking(SystemClock.uptimeMillis())
+            onFinished(utteranceId)
+        },
+        onStatus = { message -> onStatus(message) },
+        createdAtMs = SystemClock.uptimeMillis()
+    )
+
+    /** Drives the two timers above while either has something pending. */
+    private val tick = object : Runnable {
         override fun run() {
-            focus.tick(SystemClock.uptimeMillis())
-            if (focus.busy) main.postDelayed(this, FOCUS_TICK_MS)
+            val now = SystemClock.uptimeMillis()
+            guard.tick(now)
+            focus.tick(now)
+            if (guard.busy || focus.busy) main.postDelayed(this, TICK_MS)
         }
     }
 
@@ -81,13 +91,12 @@ class AndroidSpeaker(
         override fun onStart(utteranceId: String?) {}
 
         override fun onDone(utteranceId: String?) {
-            if (utteranceId != null) main.post { finished(utteranceId) }
+            report(utteranceId, failed = false)
         }
 
         @Deprecated("Deprecated in the platform, but still abstract")
         override fun onError(utteranceId: String?) {
-            // A sentence that could not be spoken is treated as spoken, so the host never stalls.
-            if (utteranceId != null) main.post { finished(utteranceId) }
+            report(utteranceId, failed = true)
         }
     }
 
@@ -96,17 +105,19 @@ class AndroidSpeaker(
     }
 
     init {
-        // An engine that never answers must not leave the host waiting to say its first sentence.
-        main.postDelayed({ if (!initialised) onInit(TextToSpeech.ERROR) }, INIT_LIMIT_MS)
+        // The guard is waiting for the engine to start, and gives up on it after a while.
+        keepTicking()
     }
 
     private fun onInit(status: Int) {
         if (closed) return
-        initialised = true
+        initStatus = status
+        var voice = false
         if (status == TextToSpeech.SUCCESS) {
             val language = tts.setLanguage(Locale.KOREAN)
-            voiceReady = language != TextToSpeech.LANG_MISSING_DATA && language != TextToSpeech.LANG_NOT_SUPPORTED
-            if (voiceReady) {
+            languageResult = language
+            voice = language != TextToSpeech.LANG_MISSING_DATA && language != TextToSpeech.LANG_NOT_SUPPORTED
+            if (voice) {
                 tts.setOnUtteranceProgressListener(progress)
                 tts.setAudioAttributes(
                     AudioAttributes.Builder()
@@ -116,49 +127,35 @@ class AndroidSpeaker(
                 )
             }
         }
-        onStatus(
-            when {
-                voiceReady -> null
-                status != TextToSpeech.SUCCESS -> "음성 엔진을 찾지 못했어요. 자막으로 진행합니다."
-                else -> "한국어 음성이 설치되어 있지 않아요. 자막으로 진행합니다."
-            }
-        )
-        val waiting = pending
-        pending = null
-        if (waiting != null) speak(waiting.first, waiting.second)
+        val problem = when {
+            voice -> null
+            status != TextToSpeech.SUCCESS -> SpeechGuard.NO_ENGINE
+            else -> "한국어 음성이 설치되어 있지 않아요. 자막으로 진행합니다."
+        }
+        guard.onEngineStarted(voice, problem, SystemClock.uptimeMillis())
+        keepTicking()
     }
 
-    fun speak(utteranceId: String, text: String) {
-        if (closed) return
-        if (!initialised) {
-            pending = utteranceId to text
-            return
+    /** The engine calls back on a thread of its own; the guard is only touched on the main one. */
+    private fun report(utteranceId: String?, failed: Boolean) {
+        main.post {
+            if (closed) return@post
+            guard.onEngineReport(utteranceId, failed, SystemClock.uptimeMillis())
+            keepTicking()
         }
-        main.removeCallbacksAndMessages(TIMER)
-        speakingId = utteranceId
-        val estimateMs = (Speech.estimateSeconds(text) * 1000).toLong()
-        if (voiceReady) {
-            focus.beforeSpeaking()
-            keepFocusTicking()
-            if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.SUCCESS) {
-                // The engine says when it is done. Should it never do so, carry on regardless.
-                finishLater(utteranceId, estimateMs * 3 + 5_000)
-                return
-            }
-            // The engine would not take the sentence: give it the time it would have taken, as
-            // when there is no voice at all.
-        }
-        finishLater(utteranceId, estimateMs)
     }
 
-    fun stop() {
+    override fun speak(utteranceId: String, text: String) {
         if (closed) return
-        pending = null
-        speakingId = null
-        main.removeCallbacksAndMessages(TIMER)
-        if (voiceReady) tts.stop()
+        guard.speak(utteranceId, text, SystemClock.uptimeMillis())
+        keepTicking()
+    }
+
+    override fun stop() {
+        if (closed) return
+        guard.stop()
         focus.afterSpeaking(SystemClock.uptimeMillis())
-        keepFocusTicking()
+        keepTicking()
     }
 
     /** The host is about to listen for an answer; see [AudioFocusKeeper.beforeListening]. */
@@ -166,40 +163,39 @@ class AndroidSpeaker(
         focus.beforeListening()
     }
 
-    fun shutdown() {
+    /** What the engine is and how it has behaved, in words, for the demo panel's diagnostics. */
+    override fun describe(): String {
+        // Asking a broken engine about itself must not take the screen down with it.
+        val engines = try { tts.engines.size } catch (e: RuntimeException) { -1 }
+        val engine = try { tts.defaultEngine } catch (e: RuntimeException) { null }
+        val setUp = when (initStatus) {
+            null -> "응답 없음"
+            TextToSpeech.SUCCESS -> "성공"
+            else -> "실패"
+        }
+        val korean = when (languageResult) {
+            null -> "확인 못 함"
+            TextToSpeech.LANG_MISSING_DATA -> "음성 데이터 없음"
+            TextToSpeech.LANG_NOT_SUPPORTED -> "지원 안 함"
+            else -> "있음"
+        }
+        return "Android 엔진 ${engines}개(${engine ?: "없음"}) · 초기화 $setUp · 한국어 $korean · ${guard.describe()}"
+    }
+
+    override fun shutdown() {
         closed = true
-        pending = null
-        speakingId = null
         main.removeCallbacksAndMessages(null)
         tts.stop()
         tts.shutdown()
         focus.shutdown()
     }
 
-    private fun finishLater(utteranceId: String, delayMs: Long) {
-        main.postAtTime({ finished(utteranceId) }, TIMER, SystemClock.uptimeMillis() + delayMs)
-    }
-
-    private fun finished(utteranceId: String) {
-        // The engine's word and the timer can both arrive, and either can arrive for a sentence
-        // that was cut off in the meantime. Only the sentence in progress counts, and only once.
-        if (utteranceId != speakingId) return
-        speakingId = null
-        main.removeCallbacksAndMessages(TIMER)
-        focus.afterSpeaking(SystemClock.uptimeMillis())
-        keepFocusTicking()
-        onFinished(utteranceId)
-    }
-
-    private fun keepFocusTicking() {
-        main.removeCallbacks(focusTick)
-        if (focus.busy) main.postDelayed(focusTick, FOCUS_TICK_MS)
+    private fun keepTicking() {
+        main.removeCallbacks(tick)
+        if (guard.busy || focus.busy) main.postDelayed(tick, TICK_MS)
     }
 
     private companion object {
-        /** Token for the pending "this sentence is over" callback. */
-        val TIMER = Any()
-        const val FOCUS_TICK_MS = 250L
-        const val INIT_LIMIT_MS = 5_000L
+        const val TICK_MS = 100L
     }
 }

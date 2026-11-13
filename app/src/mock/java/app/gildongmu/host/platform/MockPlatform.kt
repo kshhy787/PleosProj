@@ -3,6 +3,7 @@ package app.gildongmu.host.platform
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -19,6 +20,8 @@ import app.gildongmu.core.sim.ScenarioParser
 import app.gildongmu.host.AppPlatform
 import app.gildongmu.host.speech.AndroidListener
 import app.gildongmu.host.speech.AndroidSpeaker
+import app.gildongmu.host.speech.CaptionSpeaker
+import app.gildongmu.host.speech.Speaker
 import app.gildongmu.host.ui.HostScreen
 
 /**
@@ -32,7 +35,10 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
 
     private val main = Handler(Looper.getMainLooper())
     private val panel = DemoPanel(activity, this)
-    private var speaker: AndroidSpeaker? = null
+    private var speaker: Speaker? = null
+
+    /** [speaker], when it is Android's own engine: the one that shares the audio channel. */
+    private var voice: AndroidSpeaker? = null
     private var listener: AndroidListener? = null
     private var session: DemoSession? = null
 
@@ -52,6 +58,31 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
             lastTickMs = now
             session?.tick(delta)
             main.postDelayed(this, TICK_MS)
+        }
+    }
+
+    /**
+     * Refreshes the panel's diagnostics once a second, whether or not the drive is running, and
+     * writes them to the log whenever they change, so that they can be read without the screen.
+     */
+    private val diagnosing = object : Runnable {
+        private var logged = ""
+
+        override fun run() {
+            val lines = listOf(
+                "화면  ${screen.describe()}",
+                "말하기  ${speaker?.describe() ?: "없음"}",
+                "듣기  ${listener?.describe() ?: "없음"}",
+                "기기  ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                "빌드  mock · $BUILD_NOTE"
+            )
+            panel.setDiagnostics(lines)
+            val text = lines.joinToString(" | ")
+            if (text != logged) {
+                logged = text
+                Log.i(TAG, "진단: $text")
+            }
+            main.postDelayed(this, 1000)
         }
     }
 
@@ -102,14 +133,26 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         screen.onSkip = { session?.dispatch(Signal.SkipPressed) }
         screen.onShortcut = { text -> onSay(text) }
 
-        speaker = AndroidSpeaker(
-            activity,
+        // Before the speaker exists, because the speaker may have something to say about itself at once.
+        panel.setVoiceStatus("준비 중")
+        // The host waits to hear that each sentence is over, so it must always have a speaker.
+        // If Android's engine cannot even be created on this device, one that only keeps time.
+        voice = try {
+            AndroidSpeaker(
+                activity,
+                onFinished = { id -> session?.dispatch(Signal.SpeechFinished(id)) },
+                onAudioFocus = { available -> session?.dispatch(Signal.AudioFocus(available)) },
+                onStatus = { problem -> panel.setVoiceStatus(problem) }
+            )
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Android's speech engine could not be created", e)
+            null
+        }
+        speaker = voice ?: CaptionSpeaker(
             onFinished = { id -> session?.dispatch(Signal.SpeechFinished(id)) },
-            onAudioFocus = { available -> session?.dispatch(Signal.AudioFocus(available)) },
             onStatus = { problem -> panel.setVoiceStatus(problem) }
         )
         listener = AndroidListener(activity) { text -> onSay(text) }
-        panel.setVoiceStatus("준비 중")
         panel.setRunning(running = false, started = false)
 
         try {
@@ -126,6 +169,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         }
 
         showHearing()
+        main.post(diagnosing)
     }
 
     override fun onPermissionsChanged() {
@@ -140,7 +184,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
      */
     private fun openMicrophone() {
         if (scripted()) return
-        speaker?.yieldForListening()
+        voice?.yieldForListening()
         listener?.listen()
     }
 
@@ -153,10 +197,12 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
     override fun shutdown() {
         running = false
         main.removeCallbacks(ticker)
+        main.removeCallbacks(diagnosing)
         listener?.shutdown()
         speaker?.shutdown()
         listener = null
         speaker = null
+        voice = null
         session = null
     }
 
@@ -215,6 +261,9 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         const val ROUTE = "routes/seoul-gangneung.json"
         const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
         const val TICK_MS = 100L
+
+        /** Shown in the diagnostics, to tell from a screenshot which version of the code is running. */
+        const val BUILD_NOTE = "2026-11-12"
         const val MICROPHONE_REQUEST = 1
     }
 }

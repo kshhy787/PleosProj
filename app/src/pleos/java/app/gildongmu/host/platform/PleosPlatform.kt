@@ -15,7 +15,11 @@ import app.gildongmu.core.ParkedDetector
 import app.gildongmu.core.RoutePackageParser
 import app.gildongmu.core.Signal
 import app.gildongmu.core.Stop
+import app.gildongmu.core.sim.DemoSession
+import app.gildongmu.core.sim.ScenarioParser
 import app.gildongmu.host.AppPlatform
+import app.gildongmu.host.speech.CaptionSpeaker
+import app.gildongmu.host.speech.Speaker
 import app.gildongmu.host.ui.HostScreen
 
 /**
@@ -36,7 +40,7 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
     private val parked = ParkedDetector()
 
     private var runtime: HostRuntime? = null
-    private var speaker: PleosSpeaker? = null
+    private var speaker: Speaker? = null
     private var listener: PleosListener? = null
     private var navigation: PleosNavigation? = null
     private var vehicle: PleosVehicle? = null
@@ -46,6 +50,28 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         override fun run() {
             runtime?.dispatch(Signal.Tick)
             main.postDelayed(this, 1000)
+        }
+    }
+
+    /**
+     * A scripted drive in the car's own voice, for showing the app on an emulator that has no
+     * route to follow. Once started, position, trip time, battery, stops and navigation prompts
+     * come from the scenario file, exactly as in the mock build, and the real car's signals are
+     * no longer listened to; speech still goes through the Pleos SDK. The scripted passengers
+     * answer the host, so the microphone stays closed. See [startDemoDrive].
+     */
+    private var demo: DemoSession? = null
+    private var demoTickedAtMs = 0L
+
+    private val demoTicker = object : Runnable {
+        override fun run() {
+            val session = demo ?: return
+            val now = SystemClock.uptimeMillis()
+            // A long gap (a stalled emulator, the app in the background) must not fast-forward the drive.
+            val delta = (now - demoTickedAtMs).coerceIn(0L, 500L)
+            demoTickedAtMs = now
+            session.tick(delta)
+            main.postDelayed(this, DEMO_TICK_MS)
         }
     }
 
@@ -59,19 +85,24 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         }
 
         override fun listen(mode: ListenMode, timeoutMs: Long, expected: List<String>) {
-            listener?.listen()
+            // In a demo drive the scripted passengers answer; an open microphone would let
+            // whatever is said in the room answer first.
+            if (demo == null) listener?.listen()
         }
 
         override fun cancelListen() {
-            listener?.cancel()
+            if (demo == null) listener?.cancel()
         }
 
         override fun addWaypoint(stop: Stop) {
-            navigation?.addWaypoint(stop)
+            // The scripted car has no real route to add a stop to.
+            if (demo == null) navigation?.addWaypoint(stop)
         }
 
         override fun light(cue: LightCue) {
             vehicle?.light(cue)
+            // Until the cabin light is wired up, the card's border stands in for it.
+            screen.flash(cue)
         }
 
         override fun setExpandedUi(enabled: Boolean) {
@@ -89,6 +120,16 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
     }
 
     private fun handle(signal: Signal) {
+        val session = demo
+        if (session != null) {
+            // The scripted car is the car now. Only what this device itself reports still counts:
+            // a sentence ending, the skip button, the parked screen's shortcuts.
+            when (signal) {
+                is Signal.SpeechFinished, is Signal.Utterance, Signal.SkipPressed -> session.dispatch(signal)
+                else -> {}
+            }
+            return
+        }
         val now = SystemClock.uptimeMillis()
         // The SDK does not report "parked" directly (VERIFY: gear or parking brake may be readable
         // through a domain not covered by the public guides), so it is derived here.
@@ -103,31 +144,82 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
     override fun start() {
         screen.onSkip = { handle(Signal.SkipPressed) }
         screen.onShortcut = { text -> handle(Signal.Utterance(text)) }
-        // For testing on an emulator whose navigation cannot be made to start route guidance:
-        // pressing and holding the destination at the top left starts the trip by hand. It changes
-        // nothing once a trip is under way. Take it out before the app goes into a real car.
-        screen.onDestinationHeld = { handle(Signal.RouteStarted()) }
+        // For showing the app on an emulator that cannot be made to start route guidance or to
+        // move along a route: pressing and holding the destination at the top left starts the
+        // scripted demo drive. Take it out before the app goes into a real car.
+        screen.onDestinationHeld = { startDemoDrive() }
 
         // Until the content server exists, the car plays the route package bundled with the app.
         val route = try {
-            RoutePackageParser.parse(activity.assets.open(ROUTE).bufferedReader().use { it.readText() })
+            RoutePackageParser.parse(asset(ROUTE))
         } catch (e: Exception) {
             Log.e(TAG, "Could not load the route package", e)
             return
         }
         runtime = HostRuntime(HostEngine(route), device) { SystemClock.uptimeMillis() }
 
-        speaker = PleosSpeaker(activity) { id -> emit(Signal.SpeechFinished(id)) }
-        listener = PleosListener(activity) { text -> emit(Signal.Utterance(text)) }
-        navigation = PleosNavigation(activity, ::emit)
-        vehicle = PleosVehicle(activity, ::emit).also { it.start() }
-        location = PleosLocation(activity, ::emit).also { it.start() }
+        // If the car's voice is not working, what it would have said goes on the screen instead.
+        val onVoiceStatus = { problem: String? -> if (problem != null) screen.captions = true }
+        // The host waits to hear that each sentence is over, so it must always have a speaker:
+        // without the SDK's, one that only keeps time.
+        speaker = attempt("TextToSpeech") {
+            PleosSpeaker(activity, onFinished = { id -> emit(Signal.SpeechFinished(id)) }, onStatus = onVoiceStatus)
+        } ?: CaptionSpeaker(onFinished = { id -> emit(Signal.SpeechFinished(id)) }, onStatus = onVoiceStatus)
+        listener = attempt("SpeechToText") { PleosListener(activity) { text -> emit(Signal.Utterance(text)) } }
+        navigation = attempt("NaviHelper") { PleosNavigation(activity, ::emit) }
+        vehicle = attempt("Vehicle") { PleosVehicle(activity, ::emit).also { it.start() } }
+        location = attempt("FusedLocation") { PleosLocation(activity, ::emit).also { it.start() } }
+        Log.i(TAG, "Voice: ${speaker?.describe()}")
 
         handle(Signal.Tick) // draws the first frame
         main.postDelayed(heartbeat, 1000)
     }
 
     override fun onPermissionsChanged() {}
+
+    /** Hands the trip over to the scripted car. See [demo]. */
+    private fun startDemoDrive() {
+        if (demo != null) return
+        val session = try {
+            DemoSession(
+                RoutePackageParser.parse(asset(ROUTE)),
+                ScenarioParser.parse(asset(SCENARIO)),
+                device
+            ) { SystemClock.uptimeMillis() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not start the demo drive", e)
+            return
+        }
+        Log.i(TAG, "Demo drive: the scripted car takes over from the real one")
+        main.removeCallbacks(heartbeat)
+        runtime = null
+        speaker?.stop()
+        listener?.cancel()
+        // A demo is for showing: the sentences go on the screen as well.
+        screen.captions = true
+        demo = session
+        session.start()
+        demoTickedAtMs = SystemClock.uptimeMillis()
+        main.post(demoTicker)
+    }
+
+    /**
+     * Sets up one SDK. An SDK that is missing or fails on this device (an emulator image without
+     * the service behind it, say) is logged and left out; it must not take the others, or the
+     * app, down with it.
+     */
+    private fun <T> attempt(what: String, create: () -> T): T? = try {
+        create()
+    } catch (e: Exception) {
+        Log.e(TAG, "$what is not available", e)
+        null
+    } catch (e: LinkageError) {
+        Log.e(TAG, "$what is not available", e)
+        null
+    }
+
+    private fun asset(path: String): String =
+        activity.assets.open(path).bufferedReader().use { it.readText() }
 
     override fun shutdown() {
         main.removeCallbacksAndMessages(null)
@@ -137,10 +229,13 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         listener?.shutdown()
         speaker?.shutdown()
         runtime = null
+        demo = null
     }
 
     private companion object {
         const val TAG = "Gildongmu"
         const val ROUTE = "routes/seoul-gangneung.json"
+        const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
+        const val DEMO_TICK_MS = 100L
     }
 }

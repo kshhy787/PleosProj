@@ -116,6 +116,16 @@ class DemoDriveTest {
     }
 
     @Test
+    fun bothBuildsCarryTheSameScenario() {
+        // The car build can play the scripted drive too, in the car's own voice, so it has a copy
+        // of the scenario. A copy that drifted would make the two demos differ without anyone noticing.
+        assertEquals(
+            asset("mock/assets/scenarios/seoul-gangneung-demo.json"),
+            asset("pleos/assets/scenarios/seoul-gangneung-demo.json")
+        )
+    }
+
+    @Test
     fun theDemoTellsItsWholeStory() {
         val run = play()
         println("=== 서울 → 강릉 데모 대본 (" + "%.1f".format(run.minutes) + "분) ===")

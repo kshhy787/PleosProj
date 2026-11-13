@@ -15,6 +15,8 @@ import android.widget.TextView
 import app.gildongmu.core.HostSnapshot
 import app.gildongmu.core.LightCue
 import app.gildongmu.core.Phase
+import app.gildongmu.core.ScreenFit
+import kotlin.math.roundToInt
 
 /**
  * The whole screen.
@@ -22,6 +24,10 @@ import app.gildongmu.core.Phase
  * While the car is moving it is one card: what the host is saying, how far through it is, and a
  * skip button. Everything else is voice. The lower panel with the scoreboard, the route diagram
  * and two shortcut buttons exists only while parked, and is removed the moment the car moves.
+ *
+ * The window it is given can be any size and can change: a whole wide display, half of a split
+ * screen, a short strip. [ScreenFit] decides the arrangement for the size at hand, and this class
+ * applies it whenever the size changes.
  */
 class HostScreen(private val context: Context) {
 
@@ -49,6 +55,15 @@ class HostScreen(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var last: HostSnapshot? = null
 
+    /** The status row, the card and the parked panel: everything that is not the side panel. */
+    private val column: LinearLayout = Ui.column(context)
+
+    /** The parked panel is showing. */
+    private var parked = false
+
+    /** The arrangement in force; null until the window has a size. */
+    private var fit: ScreenFit? = null
+
     private val destination = Ui.text(context, 22f, Palette.TEXT, bold = true)
     private val trip = Ui.text(context, 20f, Palette.TEXT_SECONDARY)
     private val battery = Ui.text(context, 20f, Palette.TEXT_SECONDARY)
@@ -73,13 +88,12 @@ class HostScreen(private val context: Context) {
         root.setBackgroundColor(Palette.BACKGROUND)
         root.setPadding(pad, pad, pad, pad)
 
-        val left = Ui.column(context)
-        left.addView(buildStatusRow(), Ui.params(Ui.MATCH, Ui.WRAP))
-        left.addView(buildCard(), Ui.margins(Ui.params(Ui.MATCH, 0, 1f), top = pad))
-        left.addView(buildParkedPanel(), Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = pad))
-        root.addView(left, Ui.params(0, Ui.MATCH, 1f))
+        column.addView(buildStatusRow(), Ui.params(Ui.MATCH, Ui.WRAP))
+        column.addView(buildCard(), Ui.margins(Ui.params(Ui.MATCH, 0, 1f), top = pad))
+        column.addView(buildParkedPanel(), Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = pad))
+        root.addView(column, Ui.params(0, Ui.MATCH, 1f))
 
-        root.addView(sidePanel, Ui.margins(Ui.params(Ui.dp(context, 380), Ui.MATCH), left = pad))
+        root.addView(sidePanel, Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP.toInt()), Ui.MATCH), left = pad))
         Ui.show(sidePanel, false)
         Ui.show(parkedPanel, false)
         destination.setOnLongClickListener {
@@ -87,12 +101,58 @@ class HostScreen(private val context: Context) {
             onDestinationHeld()
             true
         }
+
+        // Rearranged after the layout pass that reported the new size, not in the middle of it.
+        root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) root.post { arrange() }
+        }
+    }
+
+    /** Fits the screen to the window it has now. */
+    private fun arrange() {
+        if (root.width == 0 || root.height == 0) return
+        val density = context.resources.displayMetrics.density
+        val next = ScreenFit.of(root.width / density, root.height / density, sidePanel.visibility == View.VISIBLE, parked)
+        val previous = fit
+        if (next == previous) return
+        fit = next
+
+        if (previous?.stacked != next.stacked) {
+            val pad = Ui.dp(context, 24)
+            if (next.stacked) {
+                // Too narrow for the card and the side panel to sit side by side: card on top.
+                root.orientation = LinearLayout.VERTICAL
+                column.layoutParams = Ui.params(Ui.MATCH, 0, ScreenFit.STACKED_SHARE)
+                sidePanel.layoutParams = Ui.margins(Ui.params(Ui.MATCH, 0, 1f - ScreenFit.STACKED_SHARE), top = pad)
+            } else {
+                root.orientation = LinearLayout.HORIZONTAL
+                column.layoutParams = Ui.params(0, Ui.MATCH, 1f)
+                sidePanel.layoutParams = Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP.toInt()), Ui.MATCH), left = pad)
+            }
+        }
+        sizeCard(next)
+        Ui.show(strip, next.showRoute)
+        root.requestLayout()
+    }
+
+    /** The window and the arrangement chosen for it, in words, for the demo panel's diagnostics. */
+    fun describe(): String {
+        val density = context.resources.displayMetrics.density
+        val size = "${(root.width / density).roundToInt()}×${(root.height / density).roundToInt()}dp · 밀도 $density"
+        val current = fit ?: return size
+        return size + " · " + (if (current.stacked) "위아래" else "나란히") + " · " +
+            (if (current.compact) "작은 카드" else "큰 카드") + (if (current.narrow) " · 좁음" else "") + " · 자막 ${current.captionLines}줄"
     }
 
     private fun buildStatusRow(): View {
         val row = Ui.row(context)
         val gap = Ui.dp(context, 28)
-        row.addView(destination, Ui.params(Ui.WRAP, Ui.WRAP))
+        // In a narrow window the row is too long: the destination is the part that gives way.
+        for (view in listOf(destination, trip, battery, waypoint)) {
+            view.maxLines = 1
+            view.ellipsize = TextUtils.TruncateAt.END
+        }
+        row.addView(destination, Ui.params(0, Ui.WRAP, 1f))
         row.addView(trip, Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = gap))
         row.addView(battery, Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = gap))
         row.addView(waypoint, Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = gap))
@@ -109,6 +169,12 @@ class HostScreen(private val context: Context) {
         title.ellipsize = TextUtils.TruncateAt.END
         caption.maxLines = 3
         caption.ellipsize = TextUtils.TruncateAt.END
+        // One line each, cut if need be: in a narrow window they would otherwise wrap and push
+        // the caption out of the card.
+        for (label in listOf(kind, state)) {
+            label.maxLines = 1
+            label.ellipsize = TextUtils.TruncateAt.END
+        }
         progress.max = 1000
         progress.progressTintList = ColorStateList.valueOf(Palette.ACCENT)
         progress.progressBackgroundTintList = ColorStateList.valueOf(Palette.OUTLINE)
@@ -125,21 +191,31 @@ class HostScreen(private val context: Context) {
         bottom.addView(skip, Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = Ui.dp(context, 32)))
         card.addView(bottom, Ui.params(Ui.MATCH, Ui.WRAP))
         this.bottom = bottom
-        sizeCard(compact = false)
+        // Until the window has a size, assume the wide display the card was drawn for.
+        sizeCard(ScreenFit(stacked = false, compact = false, narrow = false, captionLines = 3, showRoute = false))
         return card
     }
 
     /**
-     * The card at full size while driving, and at a smaller size while parked, when it shares the
-     * screen with the parked panel.
+     * The card at full size when it has the room, and at a smaller size when it does not: while
+     * parked, when it shares the screen with the parked panel, and in a narrow or short window.
      */
-    private fun sizeCard(compact: Boolean) {
+    private fun sizeCard(fit: ScreenFit) {
+        val compact = fit.compact
         val pad = Ui.dp(context, if (compact) 24 else 40)
         card.setPadding(pad, pad, pad, pad)
         title.textSize = if (compact) 34f else 46f
-        title.maxLines = if (compact) 1 else 2
+        // One line is enough for a title on a wide compact card; a narrow one needs the second.
+        title.maxLines = if (compact && !fit.narrow) 1 else 2
         caption.textSize = if (compact) 22f else 28f
-        caption.maxLines = if (compact) 2 else 3
+        caption.maxLines = fit.captionLines
+
+        // The status row has four items and a narrow window has room for about two. The stop on
+        // the route is the one to drop: the card says it when it matters.
+        Ui.show(waypoint, !fit.narrow)
+        destination.textSize = if (fit.narrow) 18f else 22f
+        trip.textSize = if (fit.narrow) 16f else 20f
+        battery.textSize = if (fit.narrow) 16f else 20f
         title.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 8 else 16))
         caption.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 10 else 20))
         bottom?.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 14 else 32))
@@ -168,12 +244,14 @@ class HostScreen(private val context: Context) {
     /** Shows or hides [sidePanel]. Pressing and holding the destination brings a hidden panel back. */
     fun setSidePanelVisible(visible: Boolean) {
         Ui.show(sidePanel, visible)
+        arrange()
     }
 
     /** The parked-only panel. The host turns it on when the car is parked and off before it moves. */
     fun setExpanded(enabled: Boolean) {
+        parked = enabled
         Ui.show(parkedPanel, enabled)
-        sizeCard(compact = enabled)
+        arrange()
     }
 
     /** Stands in for the cabin's ambient light on a build that has none: the card border flashes. */
