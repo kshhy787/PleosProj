@@ -36,13 +36,17 @@ Be precise about what has and has not been verified when you report results, and
   so the run was captions only and no sentence was ever handed to an engine. The speaking path
   (playback, its progress reports, audio focus) has therefore never run on a device. On
   2026-11-14, on the waiting screen before **주행 시작**, **패널 숨기기** hid the panel, and a tap
-  on the card or the status row, or a long press on the destination, brought it back. That day
-  the emulator gave the app a 1682×1172 dp window lower on the screen, its bottom 128 dp or so
-  under the Pleos bottom bar. Not tried yet: the stock Automotive emulator; the microphone and
-  speech recognition (**자동 응답** in the side panel stayed on); any other button. The card alone
-  at full width with the panel hidden (the only layout the pleos build uses) has been seen only
-  with the waiting card, not during a drive; the layouts for narrow or low windows have been
-  tested only as rules and never seen on a screen. On 2026-11-14 a toast the app showed was not in
+  on the card or the status row, or a long press on the destination, brought it back. While the
+  panel is hidden, a "화면을 눌러 패널 띄우기" hint floats at the bottom centre of the card; the
+  view hierarchy shows it there, but it has not been seen drawn (see the next sentence). From
+  2026-11-13 the emulator on the office PC, cold boots included, reports a 128 px top display
+  cutout, and Pleos's home then draws every app in the right-hand area, its own map app too, 128
+  px below its window: the app measures 1682×1172 dp and its bottom 128 px are under the bottom
+  bar. The Pleos emulator on the user's other PC shows the normal layout. Not tried yet: the
+  stock Automotive emulator; the microphone and speech recognition (**자동 응답** in the side
+  panel stayed on); any other button. The card alone at full width with the panel hidden (the
+  only layout the pleos build uses) has been seen only with the waiting card, not during a drive;
+  the layouts for narrow or low windows have been tested only as rules and never seen on a screen. On 2026-11-14 a toast the app showed was not in
   a screenshot taken about a second later, and the image's system UI logged "Attempt to hide
   non-current toast"; no other toast was tried, so put messages in the app's own views. If
   something on screen or in speech misbehaves, suspect this layer first, not the core.

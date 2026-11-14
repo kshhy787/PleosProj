@@ -262,8 +262,11 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
         const val TICK_MS = 100L
 
-        /** Shown in the diagnostics, to tell from a screenshot which version of the code is running. */
-        const val BUILD_NOTE = "2026-11-14"
+        /**
+         * Shown in the diagnostics, to tell from a screenshot which version of the code is running.
+         * Change it whenever the app's behaviour changes; add " · 2" and so on for a second build on one day.
+         */
+        const val BUILD_NOTE = "2026-11-14 · 2"
         const val MICROPHONE_REQUEST = 1
     }
 }

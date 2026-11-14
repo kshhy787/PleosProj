@@ -79,6 +79,9 @@ class HostScreen(private val context: Context) {
     private val skip: TextView = Ui.button(context, "건너뛰기") { onSkip() }
     private var bottom: View? = null
 
+    /** Says how to get a hidden side panel back. Floats over the card's bottom edge while the panel is hidden. */
+    private val panelHint = Ui.text(context, 16f, Palette.TEXT_SECONDARY)
+
     private val parkedPanel: LinearLayout = Ui.column(context)
     private val scores = Ui.text(context, 26f, Palette.TEXT, bold = true)
     private val strip = RouteStripView(context)
@@ -96,6 +99,7 @@ class HostScreen(private val context: Context) {
         root.addView(sidePanel, Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP.toInt()), Ui.MATCH), left = pad))
         Ui.show(sidePanel, false)
         Ui.show(parkedPanel, false)
+        Ui.show(panelHint, false)
         destination.setOnLongClickListener {
             if (sidePanel.childCount > 0) setSidePanelVisible(true)
             onDestinationHeld()
@@ -193,7 +197,19 @@ class HostScreen(private val context: Context) {
         this.bottom = bottom
         // Until the window has a size, assume the wide display the card was drawn for.
         sizeCard(ScreenFit(stacked = false, compact = false, narrow = false, captionLines = 3, showRoute = false))
-        return card
+
+        // The card sits in a frame so that the hint can float over its bottom margin without taking
+        // any room from the card, which ScreenFit has already measured out.
+        panelHint.text = PANEL_HINT
+        panelHint.maxLines = 1
+        panelHint.background = Ui.rounded(Palette.SURFACE_RAISED, Ui.dp(context, 16), Palette.OUTLINE, Ui.dp(context, 1))
+        panelHint.setPadding(Ui.dp(context, 16), Ui.dp(context, 6), Ui.dp(context, 16), Ui.dp(context, 6))
+        val frame = FrameLayout(context)
+        frame.addView(card, FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH))
+        val hintParams = FrameLayout.LayoutParams(Ui.WRAP, Ui.WRAP, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        hintParams.bottomMargin = Ui.dp(context, 10)
+        frame.addView(panelHint, hintParams)
+        return frame
     }
 
     /**
@@ -256,6 +272,8 @@ class HostScreen(private val context: Context) {
             view.setOnClickListener(bringBack)
             view.isClickable = bringBack != null
         }
+        // While the screen can bring the panel back, say so: nothing else on screen does.
+        Ui.show(panelHint, bringBack != null)
         arrange()
     }
 
@@ -333,5 +351,7 @@ class HostScreen(private val context: Context) {
     private companion object {
         /** Token for the pending "end of flash" callback, so a new flash replaces the old one. */
         val FLASH = Any()
+
+        const val PANEL_HINT = "화면을 눌러 패널 띄우기"
     }
 }
