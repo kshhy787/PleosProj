@@ -52,6 +52,29 @@ object Korean {
     /** "첫째와", "강릉과". */
     fun waGwa(word: String) = word + if (endsWithConsonant(word)) "과" else "와"
 
+    // Vowel indices (중성) after which the initial-sound rule (두음법칙) changes ㄹ and ㄴ.
+    private val toIeung = setOf(2, 6, 7, 12, 17, 20) // ㅑ ㅕ ㅖ ㅛ ㅠ ㅣ: 력 → 역, 녀 → 여
+    private val toNieun = setOf(0, 1, 8, 11, 13, 18) // ㅏ ㅐ ㅗ ㅚ ㅜ ㅡ: 라 → 나, 로 → 노
+
+    /**
+     * How [syllable] is written at the start of a word under 두음법칙, or null when the rule does
+     * not change it: 력 → 역, 리 → 이, 라 → 나, 녀 → 여. In 끝말잇기 a word ending in 력 may be
+     * followed by one starting with 역.
+     */
+    fun initialForm(syllable: Char): Char? {
+        if (syllable !in '가'..'힣') return null
+        val index = syllable.code - 0xAC00
+        val initial = index / 588
+        val vowel = (index % 588) / 28
+        val newInitial = when {
+            initial == 5 && vowel in toIeung -> 11 // ㄹ → ㅇ
+            initial == 5 && vowel in toNieun -> 2 // ㄹ → ㄴ
+            initial == 2 && vowel in toIeung -> 11 // ㄴ → ㅇ
+            else -> return null
+        }
+        return (0xAC00 + newInitial * 588 + index % 588).toChar()
+    }
+
     // Longest first, so "이에요" is removed before "요" gets a chance.
     private val endings = listOf(
         "인것같아요", "인것같아", "같아요", "같아", "이라고생각해요", "라고생각해요",

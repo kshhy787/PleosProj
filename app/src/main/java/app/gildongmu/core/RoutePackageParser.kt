@@ -32,7 +32,9 @@ object RoutePackageParser {
                 pois = root.objects("pois").map(::poi),
                 stops = root.objects("stops").map(::stop),
                 generalQuiz = root.objects("generalQuiz").map(::question),
-                geometryNote = root.optString("geometryNote")
+                geometryNote = root.optString("geometryNote"),
+                spots = root.objects("spots").map(::spot),
+                funQuiz = root.objects("funQuiz").map(::funQuestion)
             )
             validate(pkg)
             return pkg
@@ -86,6 +88,29 @@ object RoutePackageParser {
         choices = o.strings("choices")
     )
 
+    /** A riddle or nonsense question: the usual question fields plus `kind`. */
+    private fun funQuestion(o: JsonObject): QuizQuestion {
+        val key = o.string("kind")
+        val kind = QuizKind.FUN.firstOrNull { it.key == key }
+            ?: throw PackageFormatException("Route package: funQuiz question \"${o.optString("id")}\" has kind \"$key\" (use riddle or nonsense)")
+        return question(o).copy(kind = kind)
+    }
+
+    private fun spot(o: JsonObject): Spot {
+        val key = o.string("category")
+        return Spot(
+            id = o.string("id"),
+            category = SpotCategory.of(key)
+                ?: throw PackageFormatException("Route package: spot \"${o.optString("id")}\" has category \"$key\" (use food, sight or cafe)"),
+            name = o.string("name"),
+            area = o.optString("area") ?: "",
+            location = point(o),
+            reason = o.string("reason"),
+            near = o.optString("near"),
+            sources = o.objects("sources").map { SourceRef(it.string("title"), it.string("url")) }
+        )
+    }
+
     private fun validate(pkg: RoutePackage) {
         fun check(condition: Boolean, message: () -> String) {
             if (!condition) throw PackageFormatException("Route package: ${message()}")
@@ -108,7 +133,19 @@ object RoutePackageParser {
                 check(variant.seconds > 0 && variant.text.isNotBlank()) { "poi \"${poi.id}\" has an empty story variant" }
             }
         }
-        for (q in pkg.pois.flatMap { it.quiz } + pkg.generalQuiz) {
+        val stopIds = pkg.stops.map { it.id }.toSet()
+        for (spot in pkg.spots) {
+            unique(spot.id, "spot")
+            check(spot.name.isNotBlank()) { "spot \"${spot.id}\" has no name" }
+            check(spot.reason.isNotBlank()) { "spot \"${spot.id}\" has no reason" }
+            check(spot.location.lat in -90.0..90.0 && spot.location.lon in -180.0..180.0) { "spot \"${spot.id}\" is not at a valid latitude/longitude" }
+            check(spot.near == null || spot.near == Spot.NEAR_DESTINATION || spot.near in stopIds) {
+                "spot \"${spot.id}\" is near \"${spot.near}\", which is neither a stop id nor \"${Spot.NEAR_DESTINATION}\""
+            }
+            // Every place the host recommends must say where its facts came from.
+            check(spot.sources.isNotEmpty()) { "spot \"${spot.id}\" needs at least one source" }
+        }
+        for (q in pkg.pois.flatMap { it.quiz } + pkg.generalQuiz + pkg.funQuiz) {
             unique(q.id, "question")
             check(q.prompt.isNotBlank()) { "question \"${q.id}\" has no prompt" }
             check(q.answers.isNotEmpty() && q.answers.all { it.isNotBlank() }) { "question \"${q.id}\" needs at least one answer" }

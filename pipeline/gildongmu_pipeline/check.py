@@ -22,6 +22,11 @@ _NUMBER = re.compile(r"\d[\d,]*")
 # area. An opening that only makes sense on the spot would be wrong there.
 _ON_THE_SPOT_OPENINGS = ("지금 지나", "지금 보이", "지금 달리", "여기는", "여기가", "여기에", "이곳", "이 근처", "이제 ")
 
+# The same values the app accepts (core/Model.kt: SpotCategory, QuizKind, Spot.NEAR_DESTINATION).
+SPOT_CATEGORIES = ("food", "sight", "cafe")
+FUN_KINDS = ("riddle", "nonsense")
+NEAR_DESTINATION = "destination"
+
 
 def _squash(text: str) -> str:
     return re.sub(r"\s+", "", text)
@@ -142,6 +147,41 @@ def package_problems(package: dict[str, Any]) -> list[str]:
             if bad:
                 problems.append(f"poi {label!r}: unspeakable characters {' '.join(bad)}")
         questions.extend(poi.get("quiz") or [])
+
+    stop_ids = {stop.get("id") for stop in package.get("stops") or []}
+    for spot in package.get("spots") or []:
+        label = spot.get("id")
+        unique(label, "spot")
+        if not str(spot.get("name", "")).strip() or not _is_position(spot):
+            problems.append(f"spot {label!r} needs a name, lat and lon")
+        if spot.get("category") not in SPOT_CATEGORIES:
+            problems.append(f"spot {label!r} has category {spot.get('category')!r} (use food, sight or cafe)")
+        reason = str(spot.get("reason", ""))
+        if not reason.strip():
+            problems.append(f"spot {label!r} has no reason")
+        bad = speech.unspeakable_characters(f"{spot.get('name', '')} {reason}")
+        if bad:
+            problems.append(f"spot {label!r}: unspeakable characters {' '.join(bad)}")
+        # The reason is said when the spot is recommended, usually long before the car is there.
+        opening = next((words for words in _ON_THE_SPOT_OPENINGS if reason.lstrip().startswith(words)), None)
+        if opening:
+            problems.append(f"spot {label!r}: the reason opens with {opening.strip()!r}, which only makes sense on the spot")
+        near = spot.get("near")
+        if near is not None and near != NEAR_DESTINATION and near not in stop_ids:
+            problems.append(f"spot {label!r} is near {near!r}, which is neither a stop id nor {NEAR_DESTINATION!r}")
+        sources = spot.get("sources") or []
+        if not sources or not all(source.get("title") and source.get("url") for source in sources):
+            problems.append(f"spot {label!r} needs at least one source with a title and url")
+
+    for question in package.get("funQuiz") or []:
+        label = question.get("id")
+        if question.get("kind") not in FUN_KINDS:
+            problems.append(f"funQuiz question {label!r} has kind {question.get('kind')!r} (use riddle or nonsense)")
+        texts = [question.get("prompt", ""), question.get("explanation", ""), *(question.get("answers") or [])]
+        bad = speech.unspeakable_characters(" ".join(str(text) for text in texts))
+        if bad:
+            problems.append(f"funQuiz question {label!r}: unspeakable characters {' '.join(bad)}")
+        questions.append(question)
 
     for question in questions:
         label = question.get("id")

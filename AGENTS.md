@@ -21,7 +21,7 @@ Be precise about what has and has not been verified when you report results, and
 `README.md` ("지금 상태") when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
-  Seoul → Gangneung drive. All 133 tests also pass through Gradle (`testMockDebugUnitTest`). This
+  Seoul → Gangneung drive. All 142 tests also pass through Gradle (`testMockDebugUnitTest`). This
   is the part to trust.
 - Android code (`app.gildongmu.host`, the `mock` source set): run on 2026-11-12 as `mockDebug` on
   the Pleos Connect emulator (Android 14, API 34, image `release_connect_v2.1.0`), in a
@@ -80,7 +80,8 @@ app/src/main/java/app/gildongmu/core/    host engine and its helpers; no Android
 app/src/main/java/app/gildongmu/host/    Activity, screen (views built in code), speech wrappers
 app/src/mock/                            mock build: demo panel, scripted drive, Android speech
 app/src/pleos/                           pleos build: Pleos Connect SDK adapters
-app/src/main/assets/routes/              route package (stories, quizzes, stops)
+app/src/main/assets/routes/              route package (stories, quizzes, stops, spots, riddles)
+app/src/main/assets/games/               word list for 끝말잇기
 app/src/test/                            JUnit 4 tests for core
 pipeline/                                Python tool that builds route packages
 docs/                                    demo script, Pleos integration notes

@@ -19,7 +19,11 @@ def load_route(path: Path) -> dict[str, Any]:
     """A route file: where the trip goes, without any places yet.
 
     {"id", "title", "origin": {name, lat, lon}, "destination": {...}, "polyline": [[lat, lon], ...],
-     "stops": [{id, name, lat, lon, charger}], "generalQuiz": [...], "geometryNote": "..."}
+     "stops": [{id, name, lat, lon, charger}], "generalQuiz": [...], "geometryNote": "...",
+     "spots": [{id, category, name, area, lat, lon, reason, near, sources}], "funQuiz": [...]}
+
+    Spots and fun questions are written by hand, like the general questions, and are copied into
+    the package unchanged.
     """
     route = json.loads(path.read_text(encoding="utf-8"))
     missing = [key for key in ROUTE_KEYS if key not in route]
@@ -32,7 +36,7 @@ def load_route(path: Path) -> dict[str, Any]:
 
 def route_of(package: dict[str, Any]) -> dict[str, Any]:
     """The route file that would produce `package`: everything except the places."""
-    keep = (*ROUTE_KEYS, "stops", "generalQuiz", "geometryNote")
+    keep = (*ROUTE_KEYS, "stops", "generalQuiz", "geometryNote", "spots", "funQuiz")
     return {key: package[key] for key in keep if key in package}
 
 
@@ -82,7 +86,9 @@ def assemble(route: dict[str, Any], written: list[tuple[Placed, Draft]], *, mode
         "polyline": route["polyline"],
         "stops": route.get("stops", []),
         "pois": pois,
+        **({"spots": route["spots"]} if route.get("spots") else {}),
         "generalQuiz": route.get("generalQuiz", []),
+        **({"funQuiz": route["funQuiz"]} if route.get("funQuiz") else {}),
     }
     problems = check.package_problems(package)
     if problems:

@@ -46,6 +46,24 @@ class RoutePackageParserTest {
         }
     }
 
+    /** [minimal] with spots and fun questions; [extra] is spliced into the first spot. */
+    private fun withSpots(extra: String = "", kind: String = "riddle") = minimal.trimEnd().removeSuffix("}") + """,
+          "spots": [ {
+            "id": "f", "category": "food", "name": "두부마을", "area": "강릉", "lat": 37.4, "lon": 127.0,
+            "reason": "바닷물로 만든 두부예요.", "near": "destination",
+            "sources": [ { "title": "출처", "url": "https://example.org/f" } ]$extra
+          }, {
+            "id": "v", "category": "sight", "name": "누각", "lat": 37.2, "lon": 127.0,
+            "reason": "오래된 누각이에요.", "near": "s",
+            "sources": [ { "title": "출처", "url": "https://example.org/v" } ]
+          }, {
+            "id": "c", "category": "cafe", "name": "커피거리", "lat": 37.35, "lon": 127.0,
+            "reason": "커피거리예요.", "sources": [ { "title": "출처", "url": "https://example.org/c" } ]
+          } ],
+          "funQuiz": [ { "id": "r", "kind": "$kind", "prompt": "수수께끼?", "answers": ["나이"], "explanation": "설명." } ]
+        }
+    """
+
     @Test
     fun readsAMinimalPackage() {
         val pkg = RoutePackageParser.parse(minimal)
@@ -54,7 +72,29 @@ class RoutePackageParserTest {
         assertEquals(false, pkg.stops.single().hasCharger)
         assertEquals("이야기.", pkg.pois.single().story.shortest.text)
         assertEquals(listOf("답"), pkg.pois.single().quiz.single().answers)
+        assertEquals(QuizKind.FACT, pkg.pois.single().quiz.single().kind)
         assertTrue(pkg.generalQuiz.isEmpty())
+        assertTrue("A package written before spots existed still loads", pkg.spots.isEmpty() && pkg.funQuiz.isEmpty())
+    }
+
+    @Test
+    fun readsSpotsAndFunQuestions() {
+        val pkg = RoutePackageParser.parse(withSpots())
+        val (food, sight, cafe) = pkg.spots
+        assertEquals(listOf(SpotCategory.FOOD, SpotCategory.SIGHT, SpotCategory.CAFE), pkg.spots.map { it.category })
+        assertEquals("두부마을" to "강릉", food.name to food.area)
+        assertEquals(GeoPoint(37.4, 127.0), food.location)
+        assertEquals("바닷물로 만든 두부예요.", food.reason)
+        assertEquals(Spot.NEAR_DESTINATION, food.near)
+        assertEquals("s", sight.near)
+        assertEquals(null, cafe.near)
+        assertEquals("", sight.area)
+        assertEquals("https://example.org/f", food.sources.single().url)
+
+        val riddle = pkg.funQuiz.single()
+        assertEquals(QuizKind.RIDDLE, riddle.kind)
+        assertEquals(listOf("나이"), riddle.answers)
+        assertEquals(QuizKind.NONSENSE, RoutePackageParser.parse(withSpots(kind = "nonsense")).funQuiz.single().kind)
     }
 
     @Test
@@ -76,6 +116,33 @@ class RoutePackageParserTest {
     }
 
     @Test
+    fun theBundledSpotsAreSourcedAndNearWhatTheySayTheyAreNear() {
+        val pkg = RoutePackageParser.parse(bundled())
+        assertEquals(12, pkg.spots.size)
+        val nearDestination = pkg.spots.filter { it.near == Spot.NEAR_DESTINATION }
+        // The demo asks what to eat in Gangneung; the recommendation card has room for three.
+        assertEquals(3, nearDestination.count { it.category == SpotCategory.FOOD })
+        assertTrue(nearDestination.count { it.category == SpotCategory.SIGHT } >= 3)
+        assertTrue(nearDestination.any { it.category == SpotCategory.CAFE })
+        assertTrue("Some spots belong to rest stops along the way", pkg.spots.any { it.near in pkg.stops.map { s -> s.id } })
+
+        for (spot in pkg.spots) {
+            val anchor = if (spot.near == Spot.NEAR_DESTINATION) pkg.destination.location else pkg.stops.single { it.id == spot.near }.location
+            val km = Geo.distanceKm(anchor, spot.location)
+            assertTrue("${spot.name} is $km km from what it is near", km < 20.0)
+            assertTrue("${spot.name} needs a source", spot.sources.isNotEmpty() && spot.sources.all { it.url.startsWith("https://") })
+        }
+    }
+
+    @Test
+    fun theBundledFunQuizHasRiddlesAndNonsense() {
+        val pkg = RoutePackageParser.parse(bundled())
+        assertTrue("About twenty, found ${pkg.funQuiz.size}", pkg.funQuiz.size in 18..26)
+        assertTrue(pkg.funQuiz.any { it.kind == QuizKind.RIDDLE })
+        assertTrue(pkg.funQuiz.any { it.kind == QuizKind.NONSENSE })
+    }
+
+    @Test
     fun everyBundledStoryFitsItsStatedLength() {
         val pkg = RoutePackageParser.parse(bundled())
         for (poi in pkg.pois) {
@@ -94,7 +161,7 @@ class RoutePackageParserTest {
     @Test
     fun everyBundledQuestionAcceptsItsOwnAnswerAndRejectsNonsense() {
         val pkg = RoutePackageParser.parse(bundled())
-        for (q in pkg.pois.flatMap { it.quiz } + pkg.generalQuiz) {
+        for (q in pkg.pois.flatMap { it.quiz } + pkg.generalQuiz + pkg.funQuiz) {
             for (answer in q.answers) {
                 assertTrue("\"$answer\" should be accepted for ${q.id}", Understanding.isCorrect(answer, q))
                 assertTrue("\"${answer}이요\" should be accepted for ${q.id}", Understanding.isCorrect(answer + "이요", q))
@@ -111,7 +178,8 @@ class RoutePackageParserTest {
         // Brackets, hanja and symbols are read out badly or not at all by speech synthesis.
         val pkg = RoutePackageParser.parse(bundled())
         val spoken = pkg.pois.flatMap { poi -> poi.story.variants.map { it.text } + poi.quiz.flatMap { listOf(it.prompt, it.explanation) } } +
-            pkg.generalQuiz.flatMap { listOf(it.prompt, it.explanation) }
+            (pkg.generalQuiz + pkg.funQuiz).flatMap { listOf(it.prompt, it.explanation, it.answers.first()) } +
+            pkg.spots.flatMap { listOf(it.name, it.reason) }
         for (text in spoken) {
             assertTrue("Unspeakable character in: $text", text.none { it in "()[]{}<>《》「」·%&/*#" || it in '一'..'鿿' })
         }
@@ -127,6 +195,10 @@ class RoutePackageParserTest {
             for (variant in poi.story.variants) {
                 assertTrue("${poi.name}: ${variant.text.take(20)}", onTheSpot.none { variant.text.trimStart().startsWith(it) })
             }
+        }
+        // A spot's reason is said when it is recommended, usually long before the car is there.
+        for (spot in pkg.spots) {
+            assertTrue("${spot.name}: ${spot.reason}", onTheSpot.none { spot.reason.trimStart().startsWith(it) })
         }
     }
 
@@ -158,6 +230,12 @@ class RoutePackageParserTest {
         assertEquals(listOf("영동과 영서", "서울과 부산"), gate.choices)
         assertTrue(Understanding.isCorrect("1번", gate))
         assertTrue(!Understanding.isCorrect("서울과 부산", gate))
+
+        // Spots and fun questions are written by hand into the route file; the pipeline carries
+        // them over unchanged.
+        val handWritten = RoutePackageParser.parse(bundled())
+        assertEquals(handWritten.spots, pkg.spots)
+        assertEquals(handWritten.funQuiz, pkg.funQuiz)
     }
 
     @Test
@@ -174,5 +252,24 @@ class RoutePackageParserTest {
             minimal.replace("\"answers\": [\"답\"]", "\"answers\": [\"답\"], \"choices\": [\"가\", \"나\"]"),
             "exactly one choice"
         )
+    }
+
+    @Test
+    fun rejectsBrokenSpotsAndFunQuestions() {
+        assertRejected(withSpots().replace("\"category\": \"food\"", "\"category\": \"bar\""), "category \"bar\"")
+        assertRejected(withSpots().replace("\"near\": \"s\"", "\"near\": \"nowhere\""), "near \"nowhere\"")
+        assertRejected(withSpots().replace("\"reason\": \"오래된 누각이에요.\"", "\"reason\": \" \""), "spot \"v\" has no reason")
+        assertRejected(withSpots().replace("\"name\": \"누각\"", "\"name\": \"\""), "spot \"v\" has no name")
+        assertRejected(withSpots().replace("\"lat\": 37.35", "\"lat\": 97.35"), "spot \"c\" is not at a valid")
+        assertRejected(
+            withSpots().replace("\"sources\": [ { \"title\": \"출처\", \"url\": \"https://example.org/c\" } ]", "\"sources\": []"),
+            "spot \"c\" needs at least one source"
+        )
+        assertRejected(withSpots().replace("\"id\": \"v\"", "\"id\": \"p\""), "spot id \"p\" is blank or used twice")
+        assertRejected(withSpots().replace("\"category\": \"cafe\", ", ""), "spots[2].category")
+        assertRejected(withSpots(kind = "joke"), "kind \"joke\"")
+        assertRejected(withSpots().replace("\"kind\": \"riddle\", ", ""), "funQuiz[0].kind")
+        assertRejected(withSpots().replace("\"id\": \"r\", \"kind\"", "\"id\": \"q\", \"kind\""), "question id \"q\" is blank or used twice")
+        assertRejected(withSpots().replace("\"answers\": [\"나이\"]", "\"answers\": [\"\"]"), "question \"r\" needs at least one answer")
     }
 }

@@ -5,7 +5,7 @@
   "language": "ko",
   "generator": "gildongmu-pipeline 0.1.0 · fixture",
   "generatedOn": "2026-01-01",
-  "geometryNote": "데모용 근사 좌표입니다. 경로선은 영동고속도로 나들목을 직선으로 이은 것이고, 장소와 휴게소 위치·충전기 유무도 손으로 놓은 근사값입니다. 실제 서비스에서는 내비 경로와 TourAPI 좌표로 대체됩니다.",
+  "geometryNote": "데모용 근사 좌표입니다. 경로선은 영동고속도로 나들목을 직선으로 이은 것이고, 장소와 휴게소 위치·충전기 유무도 손으로 놓은 근사값입니다. 먹거리·볼거리 위치는 위키데이터와 오픈스트리트맵에서 가져온 근사값이고, 횡성 한우와 봉평 메밀처럼 고장의 먹거리는 그 고장을 가리키는 좌표입니다. 실제 서비스에서는 내비 경로와 TourAPI 좌표로 대체됩니다.",
   "origin": {
     "name": "서울 양재",
     "lat": 37.466,
@@ -222,6 +222,216 @@
       ]
     }
   ],
+  "spots": [
+    {
+      "id": "food-chodang",
+      "category": "food",
+      "name": "초당두부마을",
+      "area": "강릉",
+      "lat": 37.7878,
+      "lon": 128.9149,
+      "reason": "간수 대신 바닷물로 만드는 초당두부의 고장이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 초당두부",
+          "url": "https://ko.wikipedia.org/wiki/초당두부"
+        },
+        {
+          "title": "위키백과: 초당동",
+          "url": "https://ko.wikipedia.org/wiki/초당동"
+        }
+      ]
+    },
+    {
+      "id": "food-jungang",
+      "category": "food",
+      "name": "강릉 중앙시장",
+      "area": "강릉",
+      "lat": 37.754,
+      "lon": 128.8986,
+      "reason": "감자옹심이 같은 강릉 먹거리가 모인 전통시장이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "대한민국 정책브리핑: 걸음을 떼기 어려운 강릉중앙시장 별미 기행",
+          "url": "https://www.korea.kr/news/weekendView.do?newsId=148771128"
+        }
+      ]
+    },
+    {
+      "id": "food-jumunjin",
+      "category": "food",
+      "name": "주문진수산시장",
+      "area": "강릉 주문진",
+      "lat": 37.8903,
+      "lon": 128.8284,
+      "reason": "오징어와 명태가 많이 잡히는 주문진항의 수산물 시장이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 강릉시",
+          "url": "https://ko.wikipedia.org/wiki/강릉시"
+        },
+        {
+          "title": "위키백과: 주문진항",
+          "url": "https://ko.wikipedia.org/wiki/주문진항"
+        }
+      ]
+    },
+    {
+      "id": "cafe-anmok",
+      "category": "cafe",
+      "name": "안목해변 커피거리",
+      "area": "강릉",
+      "lat": 37.7735,
+      "lon": 128.9473,
+      "reason": "강릉커피축제가 열리는 안목해변 근처의 커피거리예요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 안목해변",
+          "url": "https://ko.wikipedia.org/wiki/안목해변"
+        },
+        {
+          "title": "위키백과: 강릉시",
+          "url": "https://ko.wikipedia.org/wiki/강릉시"
+        }
+      ]
+    },
+    {
+      "id": "sight-gyeongpodae",
+      "category": "sight",
+      "name": "경포대",
+      "area": "강릉",
+      "lat": 37.795,
+      "lon": 128.8944,
+      "reason": "율곡 이이가 열 살 때 지었다는 글이 걸린 관동팔경의 누각이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 경포대",
+          "url": "https://ko.wikipedia.org/wiki/경포대"
+        }
+      ]
+    },
+    {
+      "id": "sight-gyeongpoho",
+      "category": "sight",
+      "name": "경포호",
+      "area": "강릉",
+      "lat": 37.7972,
+      "lon": 128.9028,
+      "reason": "물이 거울처럼 맑다고 해서 이름이 붙은 호수예요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 경포호",
+          "url": "https://ko.wikipedia.org/wiki/경포호"
+        }
+      ]
+    },
+    {
+      "id": "sight-ojukheon",
+      "category": "sight",
+      "name": "오죽헌",
+      "area": "강릉",
+      "lat": 37.7786,
+      "lon": 128.8778,
+      "reason": "신사임당과 율곡 이이가 태어난 집이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 오죽헌",
+          "url": "https://ko.wikipedia.org/wiki/오죽헌"
+        }
+      ]
+    },
+    {
+      "id": "sight-seongyojang",
+      "category": "sight",
+      "name": "선교장",
+      "area": "강릉",
+      "lat": 37.7867,
+      "lon": 128.8851,
+      "reason": "배로 다리를 놓아 호수를 건너다녔다는 데서 이름이 온 옛집이에요.",
+      "near": "destination",
+      "sources": [
+        {
+          "title": "위키백과: 선교장",
+          "url": "https://ko.wikipedia.org/wiki/선교장"
+        }
+      ]
+    },
+    {
+      "id": "sight-yeongneung",
+      "category": "sight",
+      "name": "세종대왕릉",
+      "area": "여주",
+      "lat": 37.3064,
+      "lon": 127.6097,
+      "reason": "세종대왕이 잠든 왕릉으로, 해시계와 측우기를 복원해 두었어요.",
+      "near": "yeoju",
+      "sources": [
+        {
+          "title": "위키백과: 영릉 (조선 세종)",
+          "url": "https://ko.wikipedia.org/wiki/영릉_(조선_세종)"
+        }
+      ]
+    },
+    {
+      "id": "food-hoengseong",
+      "category": "food",
+      "name": "횡성 한우",
+      "area": "횡성",
+      "lat": 37.4897,
+      "lon": 127.9875,
+      "reason": "지리적 표시제로 보호받는, 전국에 이름난 횡성 한우예요.",
+      "near": "hoengseong",
+      "sources": [
+        {
+          "title": "위키백과: 횡성군",
+          "url": "https://ko.wikipedia.org/wiki/횡성군"
+        }
+      ]
+    },
+    {
+      "id": "food-bongpyeong",
+      "category": "food",
+      "name": "봉평 메밀",
+      "area": "평창 봉평",
+      "lat": 37.6141,
+      "lon": 128.3779,
+      "reason": "맛의 방주에 이름을 올린 봉평 메밀로 국수와 묵을 만들어요.",
+      "near": "pyeongchang",
+      "sources": [
+        {
+          "title": "위키백과: 메밀",
+          "url": "https://ko.wikipedia.org/wiki/메밀"
+        },
+        {
+          "title": "위키백과: 봉평면",
+          "url": "https://ko.wikipedia.org/wiki/봉평면"
+        }
+      ]
+    },
+    {
+      "id": "sight-hyoseok",
+      "category": "sight",
+      "name": "이효석 문학관",
+      "area": "평창 봉평",
+      "lat": 37.6122,
+      "lon": 128.3683,
+      "reason": "메밀꽃 필 무렵을 쓴 이효석의 고향에 있는 문학관이에요.",
+      "near": "pyeongchang",
+      "sources": [
+        {
+          "title": "위키백과: 봉평면",
+          "url": "https://ko.wikipedia.org/wiki/봉평면"
+        }
+      ]
+    }
+  ],
   "generalQuiz": [
     {
       "id": "general-sea",
@@ -244,6 +454,224 @@
         "영동"
       ],
       "explanation": "인천에서 강릉까지 이어지는 영동고속도로예요."
+    }
+  ],
+  "funQuiz": [
+    {
+      "id": "riddle-age",
+      "kind": "riddle",
+      "prompt": "아무리 먹어도 배가 부르지 않은 것은 무엇일까요?",
+      "answers": [
+        "나이"
+      ],
+      "explanation": "나이는 해마다 먹어도 배가 부르지 않지요."
+    },
+    {
+      "id": "riddle-soap",
+      "kind": "riddle",
+      "prompt": "쓰면 쓸수록 작아지고, 손을 깨끗하게 해 주는 것은 무엇일까요?",
+      "answers": [
+        "비누"
+      ],
+      "explanation": "비누는 쓸수록 작아져요."
+    },
+    {
+      "id": "riddle-chair",
+      "kind": "riddle",
+      "prompt": "다리가 네 개나 있는데 한 걸음도 못 걷는 것은 무엇일까요?",
+      "answers": [
+        "의자",
+        "책상",
+        "식탁",
+        "침대"
+      ],
+      "explanation": "의자나 책상은 다리가 넷이어도 걷지 못해요."
+    },
+    {
+      "id": "riddle-mirror",
+      "kind": "riddle",
+      "prompt": "내가 웃으면 따라 웃고, 내가 손을 흔들면 따라 흔드는 것은 무엇일까요?",
+      "answers": [
+        "거울",
+        "그림자"
+      ],
+      "explanation": "거울은 내 모습을 그대로 따라 해요."
+    },
+    {
+      "id": "riddle-mushroom",
+      "kind": "riddle",
+      "prompt": "모자를 쓰고 있는데 머리는 없는 것은 무엇일까요?",
+      "answers": [
+        "버섯"
+      ],
+      "explanation": "버섯은 모자를 쓴 것처럼 생겼어요."
+    },
+    {
+      "id": "riddle-record",
+      "kind": "riddle",
+      "prompt": "깨뜨리면 오히려 칭찬받는 것은 무엇일까요?",
+      "answers": [
+        "기록",
+        "신기록"
+      ],
+      "explanation": "기록을 깨면 모두가 박수를 쳐 줘요."
+    },
+    {
+      "id": "riddle-shadow",
+      "kind": "riddle",
+      "prompt": "해가 뜨면 나를 졸졸 따라다니는데, 아무리 빨리 달려도 떼어 놓을 수 없는 것은 무엇일까요?",
+      "answers": [
+        "그림자"
+      ],
+      "explanation": "그림자는 내가 움직이는 대로 따라와요."
+    },
+    {
+      "id": "riddle-gildongmu",
+      "kind": "riddle",
+      "prompt": "길을 함께 가는 친구를 세 글자로 뭐라고 할까요?",
+      "answers": [
+        "길동무"
+      ],
+      "explanation": "길을 함께 가는 친구를 길동무라고 해요. 바로 제 이름이에요."
+    },
+    {
+      "id": "nonsense-mexico",
+      "kind": "nonsense",
+      "prompt": "세상에서 가장 큰 코는 무엇일까요?",
+      "answers": [
+        "멕시코"
+      ],
+      "explanation": "나라만큼 큰 코, 멕시코예요."
+    },
+    {
+      "id": "nonsense-hot-sea",
+      "kind": "nonsense",
+      "prompt": "세상에서 가장 뜨거운 바다는 무엇일까요?",
+      "answers": [
+        "열바다",
+        "열받아"
+      ],
+      "explanation": "열받아, 그래서 열바다예요."
+    },
+    {
+      "id": "nonsense-kingkong",
+      "kind": "nonsense",
+      "prompt": "왕이 넘어지면 무엇이 될까요?",
+      "answers": [
+        "킹콩"
+      ],
+      "explanation": "왕은 영어로 킹, 넘어지면 콩 하니까 킹콩이에요."
+    },
+    {
+      "id": "nonsense-banana",
+      "kind": "nonsense",
+      "prompt": "바나나가 웃으면 무엇이 될까요?",
+      "answers": [
+        "바나나킥"
+      ],
+      "explanation": "바나나가 킥킥 웃으니까 바나나킥이에요."
+    },
+    {
+      "id": "nonsense-duck",
+      "kind": "nonsense",
+      "prompt": "오리가 얼면 무엇이 될까요?",
+      "answers": [
+        "언덕"
+      ],
+      "explanation": "오리는 영어로 덕, 얼어 버린 덕이라서 언덕이에요."
+    },
+    {
+      "id": "nonsense-canola",
+      "kind": "nonsense",
+      "prompt": "자동차가 깜짝 놀라면 무엇이 될까요?",
+      "answers": [
+        "카놀라유",
+        "카놀라"
+      ],
+      "explanation": "자동차는 영어로 카, 카가 놀라면 카놀라유예요."
+    },
+    {
+      "id": "nonsense-five",
+      "kind": "nonsense",
+      "prompt": "모든 사람을 일어서게 만드는 숫자는 무엇일까요?",
+      "answers": [
+        "다섯"
+      ],
+      "explanation": "다섯, 다 서! 그래서 모두 일어서요."
+    },
+    {
+      "id": "nonsense-rainbow",
+      "kind": "nonsense",
+      "prompt": "세상에서 가장 아름다운 개는 무엇일까요?",
+      "answers": [
+        "무지개"
+      ],
+      "explanation": "하늘에 뜨는 일곱 빛깔 무지개예요."
+    },
+    {
+      "id": "nonsense-galbi",
+      "kind": "nonsense",
+      "prompt": "비는 비인데 맛있게 먹을 수 있는 비는 무엇일까요?",
+      "answers": [
+        "갈비",
+        "비빔밥",
+        "비스킷"
+      ],
+      "explanation": "갈비처럼 먹을 수 있는 비도 있지요."
+    },
+    {
+      "id": "nonsense-chicken",
+      "kind": "nonsense",
+      "prompt": "세상에서 가장 빠른 닭은 무엇일까요?",
+      "answers": [
+        "후다닥"
+      ],
+      "explanation": "후다닥 달려가는 닭이에요."
+    },
+    {
+      "id": "nonsense-apple",
+      "kind": "nonsense",
+      "prompt": "사과가 웃으면 무엇이 될까요?",
+      "answers": [
+        "풋사과"
+      ],
+      "explanation": "풋 하고 웃으니까 풋사과예요."
+    },
+    {
+      "id": "nonsense-pencil",
+      "kind": "nonsense",
+      "prompt": "언제나 가슴에 흑심을 품고 다니는 것은 무엇일까요?",
+      "answers": [
+        "연필"
+      ],
+      "explanation": "연필 가운데에는 까만 심이 들어 있어요."
+    },
+    {
+      "id": "nonsense-car",
+      "kind": "nonsense",
+      "prompt": "차는 차인데 마실 수 없는 차는 무엇일까요?",
+      "answers": [
+        "자동차",
+        "기차",
+        "유모차",
+        "소방차",
+        "구급차",
+        "경찰차",
+        "마차"
+      ],
+      "explanation": "자동차나 기차는 마실 수 없는 차지요."
+    },
+    {
+      "id": "nonsense-door",
+      "kind": "nonsense",
+      "prompt": "문은 문인데 닫을 수 없는 문은 무엇일까요?",
+      "answers": [
+        "소문",
+        "질문",
+        "신문",
+        "주문"
+      ],
+      "explanation": "소문이나 질문은 닫을 수 없지요."
     }
   ]
 }

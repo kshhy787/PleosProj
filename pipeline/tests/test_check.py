@@ -78,3 +78,31 @@ def test_reports_what_the_app_would_reject(bundled):
     problems = "\n".join(check.package_problems(broken))
     for fragment in ("schema must be 1", "at least two points", "says 90s", "used twice", "needs at least one answer", "exactly one of them"):
         assert fragment in problems, fragment
+
+
+def test_a_package_without_spots_or_fun_questions_is_valid(bundled):
+    # Both are optional: a package written before they existed still loads in the app.
+    del bundled["spots"], bundled["funQuiz"]
+    assert check.package_problems(bundled) == []
+
+
+def test_reports_broken_spots_and_fun_questions(bundled):
+    broken = copy.deepcopy(bundled)
+    spots, fun = broken["spots"], broken["funQuiz"]
+    spots[0]["category"] = "bar"
+    spots[1]["near"] = "nowhere"
+    spots[2]["sources"] = []
+    spots[3]["reason"] = "강릉 커피(원두)를 마셔요."
+    spots[4]["reason"] = "여기는 관동팔경의 누각이에요."
+    spots[5]["id"] = broken["pois"][0]["id"]
+    spots[6]["lat"] = 137.0
+    fun[0]["kind"] = "joke"
+    fun[1]["answers"] = []
+    fun[2]["prompt"] = "모자를 쓴 것은? (힌트: 숲)"
+    problems = "\n".join(check.package_problems(broken))
+    for fragment in (
+        "category 'bar'", "near 'nowhere'", "needs at least one source", "unspeakable characters ( )",
+        "opens with '여기는'", f"spot id {broken['pois'][0]['id']!r} is blank or used twice", "needs a name, lat and lon",
+        "kind 'joke'", "question 'riddle-soap' needs at least one answer", "funQuiz question 'riddle-chair': unspeakable",
+    ):
+        assert fragment in problems, fragment

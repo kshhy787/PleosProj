@@ -24,6 +24,7 @@ def draft():
 def test_the_route_file_is_the_bundled_package_without_its_places(bundled, tmp_path):
     route = package.route_of(bundled)
     assert "pois" not in route and route["stops"] == bundled["stops"] and route["generalQuiz"] == bundled["generalQuiz"]
+    assert route["spots"] == bundled["spots"] and route["funQuiz"] == bundled["funQuiz"]
     path = tmp_path / "r.route.json"
     path.write_text(json.dumps(route, ensure_ascii=False), encoding="utf-8")
     assert package.load_route(path) == route
@@ -57,6 +58,7 @@ def test_assembles_a_package_the_app_will_load(bundled, tmp_path):
         -(-speech.estimate_seconds(text) // 1) for text in (draft().short, draft().long)
     ]
     assert first["quiz"][0]["id"] == "poi-01-q1"
+    assert result["spots"] == route["spots"] and result["funQuiz"] == route["funQuiz"], "hand-written content is carried over"
     assert first["quiz"][0]["evidence"], "the sentence each answer rests on is kept in the package"
     assert "choices" not in first["quiz"][0]
     assert result["generator"].endswith("some-model")
