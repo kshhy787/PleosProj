@@ -241,9 +241,21 @@ class HostScreen(private val context: Context) {
         return parkedPanel
     }
 
-    /** Shows or hides [sidePanel]. Pressing and holding the destination brings a hidden panel back. */
+    /**
+     * Shows or hides [sidePanel]. While it is hidden, a tap anywhere on the card or the status row
+     * brings it back, as a tap brings back a video player's controls; buttons on the card keep their
+     * own taps, and pressing and holding the destination still works too.
+     */
     fun setSidePanelVisible(visible: Boolean) {
         Ui.show(sidePanel, visible)
+        // Only a build that puts something in the panel (mock) ever hides it, so the screen of the
+        // others never becomes tappable.
+        val bringBack = if (visible || sidePanel.childCount == 0) null else View.OnClickListener { setSidePanelVisible(true) }
+        for (view in listOf(column, destination)) {
+            // The destination needs its own listener: its long press makes it keep taps for itself.
+            view.setOnClickListener(bringBack)
+            view.isClickable = bringBack != null
+        }
         arrange()
     }
 

@@ -16,9 +16,9 @@ business sense.
 
 The code was written without access to an Android build environment. On 2026-11-12, on a
 Windows PC, Gradle was run for the first time (it built `mockDebug` and ran the unit tests) and the
-app was run on an emulator for the first time; the list says what that covered. Be precise about
-what has and has not been verified when you report results, and update `README.md` ("지금 상태")
-when any of it changes.
+app was run on an emulator for the first time; the list says what that and later runs covered.
+Be precise about what has and has not been verified when you report results, and update
+`README.md` ("지금 상태") when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
   Seoul → Gangneung drive. All 133 tests also pass through Gradle (`testMockDebugUnitTest`). This
@@ -34,22 +34,31 @@ when any of it changes.
   each sentence lasts its estimated time, the same estimate the script was made with. The app had
   no voice: Android's `TextToSpeech` finds no engine on that image (`README.md`, "문제가 생기면"),
   so the run was captions only and no sentence was ever handed to an engine. The speaking path
-  (playback, its progress reports, audio focus) has therefore never run on a device. Not tried
-  yet: the stock Automotive emulator; the microphone and speech recognition (**자동 응답** in the
-  side panel stayed on); any button other than **주행 시작**. Two kinds of layout have been tested
-  only as rules and never seen on a screen: the card alone at full width with the panel hidden
-  (the only layout the pleos build uses), and the layouts for narrow or low windows. If something
-  on screen or in speech misbehaves, suspect this layer first, not the core.
+  (playback, its progress reports, audio focus) has therefore never run on a device. On
+  2026-11-14, on the waiting screen before **주행 시작**, **패널 숨기기** hid the panel, and a tap
+  on the card or the status row, or a long press on the destination, brought it back. That day
+  the emulator gave the app a 1682×1172 dp window lower on the screen, its bottom 128 dp or so
+  under the Pleos bottom bar. Not tried yet: the stock Automotive emulator; the microphone and
+  speech recognition (**자동 응답** in the side panel stayed on); any other button. The card alone
+  at full width with the panel hidden (the only layout the pleos build uses) has been seen only
+  with the waiting card, not during a drive; the layouts for narrow or low windows have been
+  tested only as rules and never seen on a screen. On 2026-11-14 a toast the app showed was not in
+  a screenshot taken about a second later, and the image's system UI logged "Attempt to hide
+  non-current toast"; no other toast was tried, so put messages in the app's own views. If
+  something on screen or in speech misbehaves, suspect this layer first, not the core.
 - Gradle build files: on 2026-11-12 `assembleMockDebug` and `testMockDebugUnitTest` succeeded on
   Windows (Gradle 9.3.1, AGP 9.1.1). The Gradle daemon ran on the JetBrains Runtime 25 that comes
   with Android Studio, not on the JDK 17 in `JAVA_HOME`. The daemon's JDK is set by
   `gradle/gradle-daemon-jvm.properties` (`toolchainVersion=25`), a file that appeared when Android
   Studio first opened the project and is committed, so every checkout has it. The command-line
-  builds reused the daemon Android Studio had started; none has started a daemon of its own, so
-  how a command-line build finds Java 25 without Android Studio is untested. Whether to keep the
-  file is not decided; until it is, leave it alone like the other build tool versions. The build
-  has not been tried with JDK 17 alone. `assembleMockRelease` and the pleos build have not been
-  run.
+  builds of 2026-11-12 reused the daemon Android Studio had started. On 2026-11-14 that daemon was
+  gone, so a command-line build started one. Android Studio's JetBrains Runtime 25 was on the PC
+  and `JAVA_HOME` was JDK 17, but the build used neither: it downloaded Java 25 (Eclipse Adoptium
+  25.0.3, a 141 MB zip; with the unpacked copy the folder holds over 400 MB) into
+  `%USERPROFILE%\.gradle\jdks` from the address in that file, ran the daemon on it, and the 133
+  tests passed there. Whether to keep the file is not decided; until it is, leave it alone like
+  the other build tool versions. The build has not been tried with JDK 17 alone.
+  `assembleMockRelease` and the pleos build have not been run.
 - `pleos` source set (the Pleos Connect SDK adapters): never compiled against the real SDK. Off
   by default. `docs/pleos-integration.md` lists every assumption to check, file by file.
 - `pipeline/` (Python): tested with stand-ins for Wikipedia, TourAPI and Claude; never run live.

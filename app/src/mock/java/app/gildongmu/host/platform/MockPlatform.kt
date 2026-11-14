@@ -263,7 +263,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         const val TICK_MS = 100L
 
         /** Shown in the diagnostics, to tell from a screenshot which version of the code is running. */
-        const val BUILD_NOTE = "2026-11-12"
+        const val BUILD_NOTE = "2026-11-14"
         const val MICROPHONE_REQUEST = 1
     }
 }

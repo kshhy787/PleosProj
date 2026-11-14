@@ -10,9 +10,9 @@
 
 | 부분 | 상태 |
 | --- | --- |
-| 호스트 엔진과 데모 주행 (`core`) | 단위 테스트 133개 통과. Kotlin 2.2.10으로 컴파일해 JVM에서 실행했다. 2026-11-12에는 Gradle(`testMockDebugUnitTest`)로도 돌려 모두 통과했다. 서울 → 강릉 데모를 처음부터 끝까지 돌리는 테스트 포함. |
-| 앱 화면, 음성 래퍼, `mock` 플랫폼 | 2026-11-12에 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)에서 `mockDebug`로 데모 주행을 출발부터 도착까지 돌렸다. 앱 창은 1682×1210dp였고, 데모 패널을 연 채 찍은 화면(주행 중 다섯 장, 정차 중 두 장)에서 카드와 정차 화면(점수판, 경로 그림, 바로가기 버튼)이 잘리지 않고 그려졌다. 찍힌 자막은 모두 한 줄이었다. 앱이 꺼진 적은 없었고, 앱 로그(`Gildongmu` 태그)에 경고나 오류도 없었다. **소리는 내지 못했다.** 이 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 자막으로만 진행했다(아래 "문제가 생기면"). 맞춰 본 장면(출발 후 화면 네 장, 정차·재출발·도착)은 [데모 대본](docs/demo-script.md)의 시각과 2초 안에서 맞았다. 다만 자막만으로 진행하면 문장마다 대본과 같은 추정 시간을 쓰므로, 실제 음성으로 말할 때도 맞는지는 아직 모른다. **표준 Automotive 에뮬레이터에서는 실행해 보지 못했다.** 마이크와 음성 인식도 써 보지 않았다(자동 응답을 켠 채 돌렸다). |
-| Gradle 빌드 설정 | 2026-11-12에 Windows에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 이때 Gradle 데몬은 `JAVA_HOME`의 JDK 17이 아니라 Android Studio에 든 JetBrains Runtime 25로 돌았다. Android Studio로 처음 연 직후에 생긴 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 명령줄 빌드도 Android Studio가 띄워 둔 이 데몬을 같이 썼다. **JDK 17만으로는 빌드해 보지 않았다.** 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
+| 호스트 엔진과 데모 주행 (`core`) | 단위 테스트 133개 통과. Kotlin 2.2.10으로 컴파일해 JVM에서 실행했다. 2026-11-12와 2026-11-14에는 Gradle(`testMockDebugUnitTest`)로도 돌려 모두 통과했다. 서울 → 강릉 데모를 처음부터 끝까지 돌리는 테스트 포함. |
+| 앱 화면, 음성 래퍼, `mock` 플랫폼 | 2026-11-12에 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)에서 `mockDebug`로 데모 주행을 출발부터 도착까지 돌렸다. 앱 창은 1682×1210dp였고, 데모 패널을 연 채 찍은 화면(주행 중 다섯 장, 정차 중 두 장)에서 카드와 정차 화면(점수판, 경로 그림, 바로가기 버튼)이 잘리지 않고 그려졌다. 찍힌 자막은 모두 한 줄이었다. 앱이 꺼진 적은 없었고, 앱 로그(`Gildongmu` 태그)에 경고나 오류도 없었다. **소리는 내지 못했다.** 이 이미지에서는 Android 표준 음성 API가 엔진을 찾지 못해 자막으로만 진행했다(아래 "문제가 생기면"). 맞춰 본 장면(출발 후 화면 네 장, 정차·재출발·도착)은 [데모 대본](docs/demo-script.md)의 시각과 2초 안에서 맞았다. 다만 자막만으로 진행하면 문장마다 대본과 같은 추정 시간을 쓰므로, 실제 음성으로 말할 때도 맞는지는 아직 모른다. **표준 Automotive 에뮬레이터에서는 실행해 보지 못했다.** 마이크와 음성 인식도 써 보지 않았다(자동 응답을 켠 채 돌렸다). 2026-11-14에는 출발 전 대기 화면에서 패널 숨기기와, 카드를 누르거나 목적지를 길게 눌러 패널을 다시 여는 동작을 확인했다. 이때 에뮬레이터는 앱 창을 1682×1172dp로 2026-11-12보다 아래쪽에 주어서, 창 아래쪽 약 128dp가 화면 아래쪽 바에 가려져 있었다. |
+| Gradle 빌드 설정 | 2026-11-12에 Windows에서 `gradlew.bat assembleMockDebug`와 `gradlew.bat testMockDebugUnitTest`가 성공했다(Gradle 9.3.1, AGP 9.1.1). 이때 Gradle 데몬은 `JAVA_HOME`의 JDK 17이 아니라 Android Studio에 든 JetBrains Runtime 25로 돌았다. Android Studio로 처음 연 직후에 생긴 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 2026-11-12의 명령줄 빌드는 Android Studio가 띄워 둔 이 데몬을 같이 썼다. 2026-11-14에는 그 데몬이 없었고, 명령줄 빌드는 PC에 있는 Android Studio의 JetBrains Runtime 25를 쓰지 않고 Java 25(Eclipse Adoptium 25.0.3, 압축 파일 약 140MB)를 내려받아 그것으로 빌드했다. 단위 테스트 133개도 이 데몬에서 통과했다. **JDK 17만으로는 빌드해 보지 않았다.** 버전은 공식 호환표로 맞췄다(아래 "빌드 구성"). **`assembleMockRelease`와 `pleos` 빌드는 아직 돌려 보지 않았다.** |
 | `pleos` 플랫폼 (SDK 어댑터) | 공개 가이드 문서를 보고 작성했고 **SDK에 대해 컴파일해 보지 못했다.** 기본값으로 꺼져 있다. 확인할 항목은 [docs/pleos-integration.md](docs/pleos-integration.md). |
 | 콘텐츠 파이프라인 (`pipeline`) | 테스트 49개 통과(위키백과·TourAPI·Claude를 대역으로 바꿔 실행). **실제 API로는 돌려 보지 못했다.** |
 | 번들 콘텐츠 (서울 → 강릉) | 이야기와 퀴즈는 손으로 쓰고 위키백과 문서와 대조했다. **경로선과 장소·휴게소 좌표, 충전기 유무는 데모용 근사값이다.** |
@@ -34,7 +34,7 @@ gradlew.bat testMockDebugUnitTest      단위 테스트
 gradlew.bat assembleMockRelease        제출용 APK (apk/README.md 참고)
 ```
 
-실제로 빌드를 돌리는 Gradle 데몬은 `JAVA_HOME`과 상관없이 Java 25로 돈다. 저장소에 든 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 이 요구 조건은 `gradlew.bat --version`의 "Daemon JVM" 줄에 나온다. 2026-11-12의 명령줄 빌드는 모두 Android Studio가 JetBrains Runtime 25로 띄워 둔 데몬을 같이 썼고, 명령줄 빌드가 데몬을 직접 띄운 적은 없다. Android Studio의 데몬이 없을 때 명령줄 빌드가 Java 25를 어디서 찾는지, 못 찾으면 어떻게 되는지는 확인하지 못했다. 그때는 그 파일에 적힌 주소에서 Java 25를 내려받으려 할 수 있다.
+실제로 빌드를 돌리는 Gradle 데몬은 `JAVA_HOME`과 상관없이 Java 25로 돈다. 저장소에 든 `gradle/gradle-daemon-jvm.properties`(`toolchainVersion=25`)가 데몬의 JDK를 정하기 때문이다. 이 요구 조건은 `gradlew.bat --version`의 "Daemon JVM" 줄에 나온다. 2026-11-12의 명령줄 빌드는 Android Studio가 JetBrains Runtime 25로 띄워 둔 데몬을 같이 썼다. 2026-11-14에는 그 데몬이 없어서 명령줄 빌드가 데몬을 직접 띄웠다. 이때 `JAVA_HOME`은 JDK 17이었고, Android Studio에 든 JetBrains Runtime 25가 PC에 있었는데도 Gradle은 그것을 쓰지 않고 그 파일에 적힌 주소에서 Java 25(Eclipse Adoptium 25.0.3, 압축 파일 약 140MB)를 내려받아 `%USERPROFILE%\.gradle\jdks`에 풀고 그것으로 데몬을 띄웠다. 압축 파일과 푼 JDK를 합치면 그 폴더는 400MB가 넘는다. 인터넷에 연결되지 않은 PC에서는 이 단계에서 막힐 수 있다(확인하지 못했다).
 
 ## 데모 주행
 
@@ -47,7 +47,7 @@ gradlew.bat assembleMockRelease        제출용 APK (apk/README.md 참고)
 - **자동 응답**: 켜 두면 탑승자 대답이 대본대로 나와서 손을 대지 않고 녹화할 수 있다. 켜져 있는 동안에는 마이크를 열지 않는다. 방 안의 소리가 대본보다 먼저 대답해 버리면 매번 다른 데모가 되기 때문이다. 끄면 마이크 권한을 묻고, 그때부터 직접 말하거나 버튼으로 답한다.
 - **자막**: 호스트가 말하는 문장을 카드에 보여 준다. 실제 주행 화면에서는 꺼져 있는 기능이고, 녹화용으로 켠다.
 - **말하기 버튼**: 마이크 대신 눌러서 말한다. 음성 인식이 없는 에뮬레이터에서도 데모가 된다.
-- **패널 숨기기**: 카드만 남긴다. 왼쪽 위 목적지 글자를 길게 누르면 다시 나온다.
+- **패널 숨기기**: 카드만 남긴다. 카드나 그 위 줄 아무 곳이나 누르면 패널이 다시 나온다(건너뛰기 같은 버튼은 원래 동작을 한다). 왼쪽 위 목적지 글자를 길게 눌러도 된다.
 - **진단**: 패널 맨 아래에 창 크기와 배치, 음성 엔진의 상태, 음성 인식 유무, 기기와 빌드 날짜가 작은 글씨로 나온다. 무언가 안 될 때 이 부분이 보이게 화면을 찍으면 원인을 바로 알 수 있다. 같은 내용이 Logcat에 `진단:`으로 시작하는 줄로도 남는다.
 
 화면은 주어진 창 크기에 맞춰 배치를 바꾼다. 넓은 화면에서는 카드와 패널이 나란히 놓이고, 분할 화면처럼 좁은 창에서는 카드가 위, 패널이 아래로 간다. 낮거나 좁은 창에서는 카드 글씨가 작아진다. 자막은 낮은 창에서는 두 줄로 줄고, 좁은 창에서는 네 줄까지 늘어난다.
@@ -137,7 +137,7 @@ python -m gildongmu_pipeline check ../app/src/main/assets/routes/seoul-gangneung
 - **Gradle sync 실패**: 메시지 전문이 필요하다. AGP 버전을 문제 삼으면 최상위 `build.gradle.kts`의 버전을, Gradle 버전을 문제 삼으면 `gradle/wrapper/gradle-wrapper.properties`의 버전을 메시지가 권하는 값으로 바꾼다.
 - **앱이 바로 꺼짐**: Android Studio의 Logcat 창에서 `AndroidRuntime` 또는 `Gildongmu`로 걸러 나오는 오류 전문이 필요하다.
 - **카드나 자막이 안 보임**: 패널 맨 아래 "진단"의 "화면" 줄이 보이게 화면을 찍는다. 창 크기와 배치가 적혀 있다.
-- **숨긴 패널이 다시 안 나옴**: 왼쪽 위 목적지 글자(예: "강릉 경포해변 · 206km")를 1초쯤 누르고 있으면 다시 나온다. 짧게 누르면 아무 일도 없다. 앱을 다시 시작해도 패널이 보이는 상태로 시작한다.
+- **숨긴 패널이 다시 안 나옴**: 카드나 그 위 줄을 누른다. 진단의 "빌드" 날짜가 2026-11-14보다 앞선 빌드에서는 누르기로는 안 되고, 왼쪽 위 목적지 글자(예: "강릉 경포해변 · 206km")를 1초쯤 누르고 있어야 한다. 앱을 다시 시작해도 패널이 보이는 상태로 시작한다.
 - **Pleos 에뮬레이터에서 앱이 화면 너비를 다 덮음**: 보통은 왼쪽에 차량 화면이 있고 앱은 그 오른쪽에 뜬다. 앱이 왼쪽 차량 화면까지 덮고 아래쪽 차량 아이콘을 눌러도 화면이 바뀌지 않으면, 앱을 강제 종료하고(`adb shell am force-stop app.gildongmu.host`) Pleos 앱 목록(아래쪽 바의 네모 네 개 아이콘)에서 다시 연다. 2026-11-13에 한 번 이렇게 되었고 이 방법으로 돌아왔다. 어떻게 이 상태가 되었는지는 확인하지 못했다. 같은 에뮬레이터 이미지에서 다시 만들어 보려 했지만 재현되지 않았다.
 - **Pleos 에뮬레이터에서 소리가 안 남**: `mock` 빌드는 Android의 표준 음성 API(`TextToSpeech`)로 말한다. 진단의 "말하기" 줄에 "Android 엔진 0개"라고 나오면 그 API가 쓸 수 있는 엔진이 없다는 뜻이고, `mock` 빌드로는 소리를 낼 수 없다. 2026-11-12에 쓴 Pleos Connect 에뮬레이터(Android 14, API 34, 이미지 release_connect_v2.1.0)가 그렇다. 음성 서비스(`ai.pleos.playground.caas`의 `SpeechService`)가 들어 있기는 하지만 인텐트 필터에 DEFAULT 카테고리가 없어서, 엔진을 `MATCH_DEFAULT_ONLY`로 찾는 `TextToSpeech`에는 보이지 않는다. `adb shell cmd package query-services --query-flags 65536 -a android.intent.action.TTS_SERVICE`(65536이 `MATCH_DEFAULT_ONLY`)가 "No services found"를 내면 이 경우다. Android 14 소스를 보면 엔진 이름을 직접 지정해도 같은 방식으로 찾으므로 마찬가지이고, 빠진 것은 Pleos 서비스 쪽 인텐트 필터라서 앱 매니페스트로는 바꿀 수 없다. 이 두 가지는 소스를 읽고 내린 결론이고, 에뮬레이터에서 시험해 보지는 않았다. Pleos 에뮬레이터에서 소리를 내려면 Pleos TextToSpeech SDK를 쓰는 `pleos` 빌드가 필요하다. `pleos` 빌드에는 같은 대본 주행을 차량 음성으로 돌리는 기능이 있다([docs/pleos-integration.md](docs/pleos-integration.md)).
 - **소리가 안 남**: 위 "데모 주행"의 한국어 음성 설치를 본다. 에뮬레이터 볼륨도 확인한다. 표준 Automotive 이미지에 음성 엔진이 없어서 소리를 낼 수 없다면, Google 음성 엔진이 든 일반 태블릿 에뮬레이터(가로 화면)에 같은 앱을 실행하는 방법이 있다. 이 방법은 시험해 보지 못했다.
@@ -149,7 +149,7 @@ python -m gildongmu_pipeline check ../app/src/main/assets/routes/seoul-gangneung
 - **경로가 바뀌는 경우를 처리하지 않는다.** 위치는 패키지에 든 경로선을 기준으로 잰다. 내비가 경로를 다시 잡거나 다른 길로 가면 이야기 위치가 맞지 않는다.
 - **경로가 하나다.** 서울 → 강릉 한 방향의 패키지만 들어 있다. 출발할 때 경로에 맞는 패키지를 받아 오는 서버는 만들지 않았다.
 - **`pleos` 빌드에는 회전 안내 연동, 주차 상태 읽기, 조명 연출이 빠져 있다.** [docs/pleos-integration.md](docs/pleos-integration.md)에 적었다.
-- **화면 배치는 창 크기 하나에서, 데모 패널을 연 상태로만 눈으로 확인했다.** Pleos Connect 에뮬레이터의 1682×1210dp 창에서 주행 중 화면(카드와 패널이 나란히, 큰 카드)과 정차 화면(작은 카드, 점수판과 경로 그림)을 봤다. 패널을 숨겨 카드가 창 너비를 다 쓰는 화면(`pleos` 빌드는 늘 이 배치다)과, 분할 화면처럼 좁거나 낮은 창의 배치(카드가 위, 패널이 아래로 가는 배치, 자막이 네 줄까지 늘어나는 좁은 카드, 주행 중의 작은 카드, 경로 그림이 빠진 정차 화면)는 규칙만 테스트했고 그려진 모습은 보지 못했다.
+- **화면 배치는 Pleos Connect 에뮬레이터가 준 앱 창에서 몇 가지 화면만 눈으로 확인했다.** 2026-11-12에는 1682×1210dp 창에서 주행 중 화면(카드와 패널이 나란히, 큰 카드)과 정차 화면(작은 카드, 점수판과 경로 그림)을 봤다. 패널을 숨겨 카드가 창 너비를 다 쓰는 화면(`pleos` 빌드는 늘 이 배치다)은 2026-11-13과 2026-11-14에 출발 전 대기 카드로만 봤고, 주행 중에는 보지 못했다. 그때 이 PC의 에뮬레이터는 앱 창을 1682×1172dp로 아래쪽에 주어서 카드 아래 끝이 화면 아래쪽 바에 가려져 있었다. 분할 화면처럼 좁거나 낮은 창의 배치(카드가 위, 패널이 아래로 가는 배치, 자막이 네 줄까지 늘어나는 좁은 카드, 주행 중의 작은 카드, 경로 그림이 빠진 정차 화면)는 규칙만 테스트했고 그려진 모습은 보지 못했다.
 
 ## 데이터 출처
 
