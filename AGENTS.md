@@ -46,10 +46,11 @@ Be precise about what has and has not been verified when you report results, and
   stock Automotive emulator; the microphone and speech recognition (**자동 응답** in the side
   panel stayed on); any other button. The card alone at full width with the panel hidden (the
   only layout the pleos build uses) has been seen only with the waiting card, not during a drive;
-  the layouts for narrow or low windows have been tested only as rules and never seen on a screen. On 2026-11-14 a toast the app showed was not in
-  a screenshot taken about a second later, and the image's system UI logged "Attempt to hide
-  non-current toast"; no other toast was tried, so put messages in the app's own views. If
-  something on screen or in speech misbehaves, suspect this layer first, not the core.
+  the layouts for narrow or low windows have been tested only as rules and never seen on a screen.
+  On 2026-11-14 a toast the app showed was not in a screenshot taken about a second later, and the
+  image's system UI logged "Attempt to hide non-current toast"; no other toast was tried, so put
+  messages in the app's own views. If something on screen or in speech misbehaves, suspect this
+  layer first, not the core.
 - Gradle build files: on 2026-11-12 `assembleMockDebug` and `testMockDebugUnitTest` succeeded on
   Windows (Gradle 9.3.1, AGP 9.1.1). The Gradle daemon ran on the JetBrains Runtime 25 that comes
   with Android Studio, not on the JDK 17 in `JAVA_HOME`. The daemon's JDK is set by
