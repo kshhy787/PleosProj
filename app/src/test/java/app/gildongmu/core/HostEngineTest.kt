@@ -913,6 +913,31 @@ class HostEngineTest {
         assertNull("No place is left to name", h.engine.snapshot().nextLine)
     }
 
+    @Test
+    fun afterTheArrivalNoNextPlaceIsPromised() {
+        // Quiet since the start, so the last place is still untold when the car arrives, and it
+        // lies too near the end of the route to count as passed.
+        val h = Harness()
+        h.startTrip()
+        h.say("조용히")
+        h.finishSpeaking()
+        h.jump(85.0)
+        assertEquals("마바", h.engine.snapshot().upNext)
+
+        h.send(Signal.DestinationArrived)
+        val wrapUp = h.engine.snapshot()
+        assertEquals(SegmentKind.WRAP_UP, wrapUp.card?.kind)
+        assertEquals("The place is still untold", "마바", wrapUp.upNext)
+        assertNull("No story comes after the arrival", wrapUp.nextLine)
+        h.finishSpeaking()
+
+        h.say("이야기해 줘")
+        val notice = h.engine.snapshot()
+        assertEquals(SegmentKind.NOTICE, notice.card?.kind)
+        assertEquals("도착했어요!", notice.card?.caption)
+        assertNull("Nor under a notice after it", notice.nextLine)
+    }
+
     // ---- somewhere to eat or to see ----
 
     /** Four places to eat along the road, in the order the car reaches them. */
@@ -1669,6 +1694,45 @@ class HostEngineTest {
         tipped.drive(70.1)
         assertEquals(listOf(atTheDestination[0]), tipped.engine.snapshot().offers)
         assertFalse("The destination tip asks nothing", tipped.engine.snapshot().choosable)
+    }
+
+    @Test
+    fun theScreenIsToldWhenTheTilesTakeTouches() {
+        // While the car moves the tiles are pictures, however open the choice is to a voice.
+        val moving = tripWith(restaurants)
+        assertFalse("Nothing on offer", moving.engine.snapshot().tilesTappable)
+        moving.say("뭐 먹지")
+        assertTrue(moving.engine.snapshot().choosable)
+        assertFalse("Moving, while the list is read out", moving.engine.snapshot().tilesTappable)
+        moving.finishSpeaking()
+        assertEquals(ListenMode.CHOICE, moving.engine.snapshot().listening)
+        assertTrue(moving.engine.snapshot().choosable)
+        assertFalse("Moving, while the host waits for the choice", moving.engine.snapshot().tilesTappable)
+
+        // Parked, they are buttons from the first sentence of the list on.
+        val parked = parkedAndHungry()
+        assertTrue("Parked, while the list is read out", parked.engine.snapshot().tilesTappable)
+        parked.finishSpeaking()
+        assertEquals(ListenMode.CHOICE, parked.engine.snapshot().listening)
+        assertTrue("Parked, while the host waits for the choice", parked.engine.snapshot().tilesTappable)
+        parked.send(Signal.Parked(false))
+        assertTrue("Pulling away leaves the choice open to a voice", parked.engine.snapshot().choosable)
+        assertFalse("But not to a touch", parked.engine.snapshot().tilesTappable)
+
+        // Parked with nothing to choose: nothing on the card, and spots that are only described.
+        val resting = tripWith(restaurants)
+        resting.send(Signal.Parked(true))
+        assertFalse("Parked with nothing on offer", resting.engine.snapshot().tilesTappable)
+
+        val arrived = Harness(Fixtures.route(spots = restaurants + atTheDestination))
+        arrived.startTrip()
+        arrived.send(Signal.Parked(true))
+        arrived.send(Signal.DestinationArrived)
+        arrived.finishSpeaking()
+        arrived.say("뭐 먹지")
+        assertEquals(listOf(atTheDestination[0]), arrived.engine.snapshot().offers)
+        assertTrue(arrived.engine.snapshot().parked)
+        assertFalse("After arrival a touch would choose nothing", arrived.engine.snapshot().tilesTappable)
     }
 
     // ---- a tip about the destination ----

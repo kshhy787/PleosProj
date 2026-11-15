@@ -165,7 +165,9 @@ enum class SegmentKind(val label: String, val tone: Tone, val illustration: Illu
     STOP_SUGGESTION("정차 제안", Tone.STOP, Illustration.CUP),
     REST("쉬어 가기", Tone.STOP, Illustration.CUP),
     WRAP_UP("오늘의 기록", Tone.NOTICE, Illustration.ROAD),
-    NOTICE("길동무", Tone.NOTICE, Illustration.ROAD),
+
+    /** Something the host says about itself or about what it just did. Its card is titled with the app's name, so the chip must not be. */
+    NOTICE("알림", Tone.NOTICE, Illustration.ROAD),
 
     /**
      * Places to eat or to see, which can become waypoints. The bowl is for a card that names no
@@ -229,7 +231,8 @@ data class HostSnapshot(
     /**
      * The "다음 · 치악산 · 23km" line under a card, so that whoever is looking knows what comes
      * after what is being said or asked. Null when nothing is on the card (the idle card says it
-     * with [upNext]) and when no place is left to talk about.
+     * with [upNext]), when no place is left to talk about, and once the trip has arrived: a place
+     * near the end of the route can be left untold, and no story comes after the arrival.
      */
     val nextLine: String?,
     val scores: List<PlayerScore>,
@@ -246,4 +249,11 @@ data class HostSnapshot(
      * that a screen does not invite a choice the host would not act on.
      */
     val choosable: Boolean = false
-)
+) {
+    /**
+     * The tiles of [offers] take touches: the car is parked and one of them can be chosen, which
+     * is exactly when the host acts on `Signal.OfferTapped`. While the car moves the skip button
+     * is the one touch control, and a tile that chooses nothing must not look like a button.
+     */
+    val tilesTappable: Boolean get() = parked && choosable
+}

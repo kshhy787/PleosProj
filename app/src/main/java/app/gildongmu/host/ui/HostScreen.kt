@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.Space
 import android.widget.TextView
 import app.gildongmu.core.CardText
 import app.gildongmu.core.HostSnapshot
@@ -56,7 +57,10 @@ class HostScreen(private val context: Context) {
     /** The destination at the top left was pressed and held. A hook for test builds, not part of the driving UI. */
     var onDestinationHeld: () -> Unit = {}
 
-    /** Shows the sentence being spoken under the title. Off in the car, on for demo recordings. */
+    /**
+     * Shows the sentence being spoken under the title. Off in the car, on for demo recordings.
+     * A question asked while parked shows either way: `CardText.caption` has the rule.
+     */
     var captions: Boolean = false
         set(value) {
             field = value
@@ -80,6 +84,9 @@ class HostScreen(private val context: Context) {
     /** Spots are on offer, so the card is the recommendation card. [ScreenFit] is asked with it. */
     private var offering = false
 
+    /** How many spots are on offer: a single one's tile is laid out differently. */
+    private var offered = 0
+
     /** The arrangement in force. Until the window has a size, the one for a wide display. */
     private var fit: ScreenFit = ScreenFit.of(1408f, 700f, sidePanel = false, parked = false, offers = false)
 
@@ -98,7 +105,7 @@ class HostScreen(private val context: Context) {
      * Everything on the card that is not the illustration, from the chip down to the bottom row:
      * the title and the caption between them or, on the recommendation card, the tiles and the hint.
      */
-    private val text: LinearLayout = Ui.column(context)
+    private val text = TextColumn(context, art)
     private val chip = Ui.text(context, 22f, Palette.NOTICE, bold = true)
     private val chipShape: GradientDrawable = Ui.rounded(Palette.faint(Tone.NOTICE), Ui.dp(context, 22))
     private val title = Ui.text(context, 46f, Palette.TEXT, bold = true)
@@ -126,7 +133,7 @@ class HostScreen(private val context: Context) {
     /** What [art] shows now, so that it is redrawn only when the picture or its colour changes. */
     private var pictured: Pair<Illustration, Tone>? = null
 
-    /** The border is showing a light cue, and is not to be given the card's colour until it is over. */
+    /** The card is showing a light cue, and its border is not to be given the card's colour until it is over. */
     private var flashing = false
 
     init {
@@ -204,9 +211,13 @@ class HostScreen(private val context: Context) {
     /** The window and the arrangement chosen for it, in words, for the demo panel's diagnostics. */
     fun describe(): String {
         val density = context.resources.displayMetrics.density
-        val size = "${(root.width / density).roundToInt()}×${(root.height / density).roundToInt()}dp · 밀도 $density"
+        // The app's own text is held at a scale of 1 (see MainActivity); this is what the system is set to.
+        val systemFontScale = context.applicationContext.resources.configuration.fontScale
+        val size = "${(root.width / density).roundToInt()}×${(root.height / density).roundToInt()}dp · 밀도 $density · 시스템 글자 배율 $systemFontScale"
         if (root.width == 0 || root.height == 0) return size
         val current = fit
+        val least = ScreenFit.leastHeightDp(root.width / density, sidePanel.visibility == View.VISIBLE, parked, offering)
+        val low = if (root.height / density < least) " · 창이 낮음(최소 ${least.roundToInt()}dp)" else ""
         val tiles = when {
             !offering -> ""
             current.tiles == ScreenFit.TileStyle.FULL -> " · 타일 전체(이유 ${current.tileReasonLines}줄, 그림 ${current.tileIconDp.roundToInt()}dp)"
@@ -219,7 +230,8 @@ class HostScreen(private val context: Context) {
         }
         return size + " · " + (if (current.stacked) "위아래" else "나란히") + " · " +
             (if (current.compact) "작은 카드" else "큰 카드") + (if (current.narrow) " · 좁음" else "") + " · 자막 ${current.captionLines}줄" +
-            (if (current.showArt) " · 그림" else "") + tiles + scores + (if (current.showRoute) " · 경로" else "")
+            (if (current.showArt) " · 그림" else "") + tiles + (if (offering && !current.showHint) " · 안내 줄 없음" else "") +
+            scores + (if (current.showRoute) " · 경로" else "") + low
     }
 
     private fun buildStatusRow(): View {
@@ -271,14 +283,18 @@ class HostScreen(private val context: Context) {
 
         // What the card says is kept together in the middle of the card's height, with the
         // picture beside it: in a card much higher than its text, a chip at the top edge and a
-        // skip button at the bottom one would be a long way from the title they belong to. The
-        // title or the tiles show, never both; `apply` sets the margins that depend on the card's size.
-        text.setGravity(Gravity.CENTER_VERTICAL)
+        // skip button at the bottom one would be a long way from the title they belong to.
+        // Beside a picture higher than the text, the column is as high as the picture (see
+        // TextColumn) and the Space above the bottom row takes what is left over, so that the
+        // chip is level with the picture's top and the bottom row stands on its foot. The title
+        // or the tiles show, never both; `apply` sets the margins that depend on the card's size.
         text.addView(chip, Ui.params(Ui.WRAP, Ui.WRAP))
         text.addView(title)
-        text.addView(tileRow, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 12)))
+        text.addView(tileRow)
         text.addView(hint, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 12)))
         text.addView(caption)
+        // A Space and not a plain View, which makes itself as high as it is allowed to be.
+        text.addView(Space(context), Ui.params(Ui.MATCH, 0, 1f))
         text.addView(bottom)
         card.addView(art)
         card.addView(text)
@@ -316,8 +332,8 @@ class HostScreen(private val context: Context) {
 
     /**
      * Lays the pieces out as [fit] says. The card is at full size when it has the room, and at a
-     * smaller size when it does not: while parked, when it holds the tiles, and in a narrow or
-     * short window.
+     * smaller size when it does not: in a narrow or short window, and where the parked screen's
+     * pieces or the tiles leave it too little.
      */
     private fun apply(fit: ScreenFit) {
         val compact = fit.compact
@@ -328,17 +344,22 @@ class HostScreen(private val context: Context) {
         // The panel chooses its own height (see ArtPanel), so it is not told to fill the card's.
         Ui.show(art, fit.showArt)
         art.layoutParams = Ui.params(0, Ui.WRAP, fit.artShare)
-        text.layoutParams = Ui.margins(Ui.params(0, Ui.MATCH, 1f - fit.artShare), left = if (fit.showArt) Ui.dp(context, ScreenFit.ART_GAP_DP) else 0)
+        text.layoutParams = Ui.margins(Ui.params(0, Ui.WRAP, 1f - fit.artShare), left = if (fit.showArt) Ui.dp(context, ScreenFit.ART_GAP_DP) else 0)
 
         title.textSize = if (compact) 34f else 46f
         // One line is enough for a title on a wide compact card; a narrow one needs the second.
         title.maxLines = if (compact && !fit.narrow) 1 else 2
         title.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 8 else 16))
         caption.textSize = if (compact) 22f else 28f
-        caption.maxLines = fit.captionLines
+        // The room of all its lines however few it has: a caption changes every few seconds,
+        // and the title above it and the bottom row under it must not move each time it does.
+        // With no line it is not shown at all (see showWhatFits).
+        caption.setLines(fit.captionLines.coerceAtLeast(1))
         caption.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 10 else 20))
         bottom.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 14 else 32))
-        for (tile in tiles) tile.arrange(fit)
+        tileRow.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 12 else 16))
+        hint.textSize = if (compact) 18f else 22f
+        for (tile in tiles) tile.arrange(fit, fit.tileOnItsSide(offered))
 
         // The status row has four items and a narrow window has room for about two. The stop on
         // the route is the one to drop: the card says it when it matters.
@@ -353,6 +374,19 @@ class HostScreen(private val context: Context) {
         Ui.show(scoreboard.line, parked && !fit.scoresBeside)
         Ui.show(strip, fit.showRoute)
         Ui.show(shortcuts, parked)
+        showWhatFits()
+    }
+
+    /**
+     * Shows the two pieces that give way in a low window, the caption and the hint under the
+     * tiles, where the card has something to put in them and [fit] has the room. Called when
+     * either changes: what the host reports, and the arrangement.
+     */
+    private fun showWhatFits() {
+        val snapshot = last
+        Ui.show(caption, fit.captionLines > 0 && snapshot != null && CardText.caption(snapshot, captions) != null)
+        // How to choose is said only where choosing does something.
+        Ui.show(hint, fit.showHint && offering && snapshot?.choosable == true)
     }
 
     /**
@@ -382,18 +416,21 @@ class HostScreen(private val context: Context) {
     }
 
     /**
-     * Stands in for the cabin's ambient light on a build that has none: the card border flashes,
-     * and then goes back to the colour of whatever the card shows by then.
+     * Stands in for the cabin's ambient light on a build that has none: the whole card takes a
+     * wash of the cue's colour inside a thick border of it, and then goes back to the surface
+     * and to the colour of whatever the card shows by then. The border alone would not do: a
+     * right answer is green, and so is the border of the quiz card it is given on.
      */
     fun flash(cue: LightCue) {
-        val color = if (cue == LightCue.CORRECT_ANSWER) Palette.GOOD else Palette.WARM
         flashing = true
-        cardShape.setStroke(Ui.dp(context, 6), color)
+        cardShape.setStroke(Ui.dp(context, 6), Palette.cue(cue))
+        cardShape.setColor(Palette.flash(cue))
         main.removeCallbacksAndMessages(FLASH)
         main.postAtTime({
             flashing = false
             cardShape.setStroke(Ui.dp(context, 2), Palette.tone(tone ?: Tone.NOTICE))
-        }, FLASH, android.os.SystemClock.uptimeMillis() + 1400)
+            cardShape.setColor(Palette.SURFACE)
+        }, FLASH, android.os.SystemClock.uptimeMillis() + FLASH_MS)
     }
 
     /**
@@ -443,7 +480,8 @@ class HostScreen(private val context: Context) {
 
         // The tiles need another arrangement than the card they replace, so ScreenFit is asked again.
         val spots = snapshot.offers.take(tiles.size)
-        if (spots.isNotEmpty() != offering) {
+        if (spots.size != offered) {
+            offered = spots.size
             offering = spots.isNotEmpty()
             arrange()
         }
@@ -454,14 +492,12 @@ class HostScreen(private val context: Context) {
         tint(shownTone, now?.illustration ?: Illustration.ROAD)
         Ui.write(chip, CardText.chip(snapshot))
         Ui.write(title, now?.title ?: idleTitle(snapshot))
-        Ui.write(caption, if (captions) now?.caption.orEmpty() else "")
+        Ui.write(caption, CardText.caption(snapshot, captions).orEmpty())
         progress.progress = ((now?.progress ?: 0f) * 1000).toInt()
 
         Ui.show(title, !offering)
         Ui.show(tileRow, offering)
-        // How to choose is said only where choosing does something.
-        Ui.show(hint, offering && snapshot.choosable)
-        Ui.show(caption, captions && now != null)
+        showWhatFits()
         // Blanked, not removed, so that the bottom row keeps its height and the title above it its place.
         Ui.keep(progress, now != null)
         Ui.keep(skip, now != null)
@@ -473,18 +509,10 @@ class HostScreen(private val context: Context) {
             val spot = spots.getOrNull(index)
             Ui.show(tile.view, spot != null)
             // A tile is a button only while parked: while the car moves the skip button is the one touch control.
-            if (spot != null) tile.show(spot, shownTone, tappable = snapshot.parked && snapshot.choosable)
+            if (spot != null) tile.show(spot, shownTone, tappable = snapshot.tilesTappable)
         }
 
-        Ui.write(
-            state,
-            when {
-                snapshot.listening != null -> "듣고 있어요"
-                snapshot.holding -> "내비 안내 중 · 잠시 멈춤"
-                snapshot.quiet -> "조용히 가는 중"
-                else -> ""
-            }
-        )
+        Ui.write(state, CardText.state(snapshot))
 
         scoreboard.update(snapshot.scores)
         strip.update(snapshot.places, snapshot.progressKm + snapshot.remainingKm, snapshot.progressKm)
@@ -507,10 +535,33 @@ class HostScreen(private val context: Context) {
         /** Token for the pending "end of flash" callback, so a new flash replaces the old one. */
         val FLASH = Any()
 
+        /** How long a light cue stays on the card. */
+        const val FLASH_MS = 1400L
+
         const val PANEL_HINT = "화면을 눌러 패널 띄우기"
 
         /** The host recommends at most three spots at a time, and three tiles are what a card holds side by side. */
         const val MAX_TILES = 3
+    }
+}
+
+/**
+ * The card's text column. On its own it is as high as its pieces. Beside the picture it is at
+ * least as high as the picture, and the piece with a layout weight (the gap above the bottom row)
+ * takes the difference: the chip is then level with the picture's top and the skip button stands
+ * on its foot, where a column of its own height would float beside the middle of the picture.
+ *
+ * It reads the height [beside] was just measured to, so [beside] has to come before it in the row.
+ */
+private class TextColumn(context: Context, private val beside: View) : LinearLayout(context) {
+    init {
+        orientation = VERTICAL
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        val floor = if (beside.visibility == VISIBLE) beside.measuredHeight else 0
+        if (measuredHeight < floor) super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(floor, MeasureSpec.EXACTLY))
     }
 }
 

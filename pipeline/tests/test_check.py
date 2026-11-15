@@ -138,7 +138,11 @@ def test_the_illustration_keys_are_the_ones_the_app_draws():
     # The list is kept by hand in two languages; this reads the app's from its source.
     source = (REPO / "app/src/main/java/app/gildongmu/core/Signals.kt").read_text(encoding="utf-8")
     declared = source[source.index("enum class Illustration"):source.index("companion object", source.index("enum class Illustration"))]
-    assert re.findall(r'^\s+[A-Z]+\("([a-z]+)"\)', declared, flags=re.MULTILINE) == list(check.ILLUSTRATIONS)
+    # Every constant is a name and its key in quotes, one to a line. The count guards the pattern:
+    # a constant it cannot read must fail here, not drop out of the comparison.
+    keys = re.findall(r'^\s*\w+\("([^"]+)"\)', declared, flags=re.MULTILINE)
+    assert len(keys) == sum('("' in line for line in declared.splitlines())
+    assert keys == list(check.ILLUSTRATIONS)
 
 
 def test_a_stops_spot_must_not_meet_the_route_well_before_the_stop(bundled):

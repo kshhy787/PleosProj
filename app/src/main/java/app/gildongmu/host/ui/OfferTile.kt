@@ -33,9 +33,15 @@ internal class OfferTile(private val context: Context, number: Int, onTap: () ->
     /** The number on the corner of the picture, for a tile that has one. */
     private val cornerBadge = badge(number)
 
-    /** The number beside the name, for a tile without a picture. */
-    private val besideBadge = badge(number)
-    private val nameRow: LinearLayout = Ui.row(context)
+    /**
+     * The number above the name, for a tile without a picture. Above and not beside: the name is
+     * what a passenger says to choose, and beside the badge it had too little of a narrow tile's
+     * width to be read whole.
+     */
+    private val aboveBadge = badge(number)
+
+    /** The name and the reason: under the picture, or beside it in a tile that lies on its side. */
+    private val labels: LinearLayout = Ui.column(context)
     private val name = Ui.text(context, 22f, Palette.TEXT, bold = true)
     private val reason = Ui.text(context, 18f, Palette.TEXT_SECONDARY)
 
@@ -49,36 +55,53 @@ internal class OfferTile(private val context: Context, number: Int, onTap: () ->
         val badgeSize = Ui.dp(context, ScreenFit.TILE_BADGE_DP)
         view.background = shape
         view.setPadding(pad, pad, pad, pad)
+        // While parked a tile is a button, and is never lower than one.
+        view.minimumHeight = Ui.dp(context, ScreenFit.TILE_MIN_DP)
+        // On its side the tile is a row of two boxes, not of text to line up on a baseline.
+        view.isBaselineAligned = false
 
-        // The badge is centred on the name, not lined up with its first line, and the row is
-        // exactly as high as the higher of the two, which is what ScreenFit counts.
-        nameRow.isBaselineAligned = false
         name.maxLines = 2
         name.ellipsize = TextUtils.TruncateAt.END
         reason.ellipsize = TextUtils.TruncateAt.END
 
         iconArea.addView(picture, FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH))
         iconArea.addView(cornerBadge, FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.TOP or Gravity.START))
-        nameRow.addView(besideBadge, Ui.params(badgeSize, badgeSize))
-        nameRow.addView(name, Ui.params(0, Ui.WRAP, 1f))
+        labels.addView(aboveBadge, Ui.params(badgeSize, badgeSize))
+        labels.addView(name)
+        labels.addView(reason, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 6)))
         view.addView(iconArea)
-        view.addView(nameRow)
-        view.addView(reason, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 6)))
+        view.addView(labels)
 
         // Setting a listener makes a view take touches; it must not until [show] says so.
         view.setOnClickListener { onTap() }
         view.isClickable = false
     }
 
-    /** Lays the tile out as [fit] says: everything, or the number and the name only. */
-    fun arrange(fit: ScreenFit) {
+    /**
+     * Lays the tile out as [fit] says: everything, or the number and the name only, in the type
+     * of the full-size card or of the compact one. [onItsSide]: the picture is a square on the
+     * left with the name and the reason beside it (`ScreenFit.tileOnItsSide`).
+     */
+    fun arrange(fit: ScreenFit, onItsSide: Boolean) {
         val full = fit.tiles == ScreenFit.TileStyle.FULL
+        val icon = Ui.dp(context, fit.tileIconDp)
+        view.orientation = if (onItsSide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        // The picture's tile starts at the top, where its picture takes up whatever height is
+        // spare. A tile of a number and a name has none to take it up: in a row as high as its
+        // tallest tile, the two sit in the middle of a tile whose name is a line shorter.
+        view.setGravity(if (full && !onItsSide) Gravity.TOP else Gravity.CENTER_VERTICAL)
+        iconArea.layoutParams = if (onItsSide) Ui.params(icon, icon) else Ui.params(Ui.MATCH, icon)
+        labels.layoutParams = when {
+            onItsSide -> Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, ScreenFit.ART_GAP_DP))
+            full -> Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 8))
+            else -> Ui.params(Ui.MATCH, Ui.WRAP)
+        }
+        name.textSize = if (fit.compact) 22f else 28f
+        reason.textSize = if (fit.compact) 18f else 22f
         Ui.show(iconArea, full)
         Ui.show(reason, full)
-        Ui.show(besideBadge, !full)
-        iconArea.layoutParams = Ui.params(Ui.MATCH, Ui.dp(context, fit.tileIconDp))
-        nameRow.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = if (full) Ui.dp(context, 8) else 0)
-        name.layoutParams = Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = if (full) 0 else Ui.dp(context, 8))
+        Ui.show(aboveBadge, !full)
+        name.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = if (full) 0 else Ui.dp(context, ScreenFit.NAMES_BADGE_GAP_DP))
         reason.maxLines = fit.tileReasonLines.coerceAtLeast(1)
     }
 
@@ -93,7 +116,7 @@ internal class OfferTile(private val context: Context, number: Int, onTap: () ->
 
         val color = Palette.tone(tone)
         if (tone != this.tone) {
-            for (badge in listOf(cornerBadge, besideBadge)) badge.background = Ui.disc(color)
+            for (badge in listOf(cornerBadge, aboveBadge)) badge.background = Ui.disc(color)
         }
         val wanted = (spot.illustration ?: spot.category.illustration) to tone
         if (wanted != pictured) {

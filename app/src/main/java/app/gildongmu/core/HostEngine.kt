@@ -966,7 +966,10 @@ class HostEngine(
      *
      * It counts only while the car is parked. While it moves the one touch control is the skip
      * button, and the rule is kept here rather than left to the screen, so that a tile a screen
-     * forgot to switch off still does nothing. It also counts only for spots that can be chosen:
+     * forgot to switch off still does nothing. The rule is only as good as the platform's
+     * `Signal.Parked`, which the pleos build still works out from the car's position: there it
+     * outlives the stop for the first metres of pulling away, until the gear signal replaces it
+     * (`docs/pleos-integration.md`). It also counts only for spots that can be chosen:
      * the destination tip and the spots described after arrival are on the screen as well, but
      * naming one of those chooses nothing, so touching one must not either.
      */
@@ -1452,7 +1455,8 @@ class HostEngine(
             waypointName = accepted?.waypoint?.name,
             upNext = upNext(),
             // Only under a card that says or asks something: the idle card names the next place itself.
-            nextLine = if (card != null) upNext()?.let { "다음 · $it" } else null,
+            // And not after the arrival, when a place left untold has no story coming.
+            nextLine = if (card != null && phase != Phase.ARRIVED) upNext()?.let { "다음 · $it" } else null,
             scores = scores.map { PlayerScore(it.key, it.value, leader = best > 0 && it.value == best) },
             places = poisInOrder.map { poi ->
                 val state = when (poi.id) {

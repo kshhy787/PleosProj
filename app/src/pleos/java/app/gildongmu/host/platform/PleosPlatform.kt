@@ -101,7 +101,7 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
 
         override fun light(cue: LightCue) {
             vehicle?.light(cue)
-            // Until the cabin light is wired up, the card's border stands in for it.
+            // Until the cabin light is wired up, the card stands in for it, washed in the cue's colour.
             screen.flash(cue)
         }
 

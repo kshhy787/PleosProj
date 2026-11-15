@@ -1,6 +1,8 @@
 package app.gildongmu.host
 
 import android.app.Activity
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -16,6 +18,21 @@ import app.gildongmu.host.ui.Palette
 class MainActivity : Activity() {
 
     private var platform: AppPlatform? = null
+
+    /**
+     * Holds the app's text at the size it was given, whatever font size the system is set to.
+     * `ScreenFit` plans every height in dp and takes a line of text to be as high as its size in
+     * sp makes it at a scale of 1. Text the system had made larger would be higher than the room
+     * planned for it, and what gives way then is the last piece in the card: the bottom row with
+     * the skip button. The diagnostics still show the system's own scale (`HostScreen.describe`).
+     */
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        // Only the font scale is overridden, so everything else keeps following the system.
+        val onlyFontScale = Configuration()
+        onlyFontScale.fontScale = 1f
+        applyOverrideConfiguration(onlyFontScale)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

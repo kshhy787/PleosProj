@@ -21,8 +21,8 @@ Be precise about what has and has not been verified when you report results, and
 `README.md` ("지금 상태") when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
-  Seoul → Gangneung drive. All its tests also pass through Gradle (`testMockDebugUnitTest`: 382
-  on 2026-11-15, 363 of them for `core` and 19 for the palette and the pictures). This is the
+  Seoul → Gangneung drive. All its tests also pass through Gradle (`testMockDebugUnitTest`: 400
+  on 2026-11-16, 380 of them for `core` and 20 for the palette and the pictures). This is the
   part to trust. The phase-2 features of 2026-11-15 (spot recommendations that add a waypoint,
   riddles, 끝말잇기, the destination tip), and the fixes after that day's review, are unit-tested
   only; of them, only asking for somewhere to eat and choosing a spot has been used in the app.
@@ -58,18 +58,53 @@ Be precise about what has and has not been verified when you report results, and
   messages in the app's own views. On 2026-11-15 the screens were rebuilt (a picture and a tone
   colour on the card, tiles on the recommendation card, and on the parked screen a scoreboard, a
   route strip and one row of buttons), so everything above was seen on the screen before that.
-  The new screen was looked at once the same day, as `mockDebug` on the Pleos emulator in the
-  1682×1172 dp window with its bottom under the bar and the demo panel open: the briefing and
-  rest cards, the recommendation card with three full tiles (moving and parked), and the parked
-  screen's card, scoreboard and the top half of the route strip drew without clipping or
-  overlap, and a touch on a tile while parked added that spot as a waypoint. Story and quiz
-  cards were seen only in a build from earlier that day, before the card's contents were moved
-  to the middle of its height. With the panel hidden only the waiting card was seen. Not seen:
-  the route strip's names and the three shortcut buttons (under the bar; the view hierarchy has
-  them where `ScreenFit` puts them), the destination tip's single tile, the arrival, the pleos
-  build's screen (compiled only), and every arrangement for a narrow or low window. During that
-  look another adb client was driving the same emulator, and the drive was paused once by a
-  press that was not ours. `ScreenFit`'s comment lists every piece of the three screens with
+  The new screen was gone through on 2026-11-16, as `mockDebug` on the Pleos emulator in the
+  1682×1172 dp window with its bottom 128 px under the bar, with the demo panel open and again
+  with it hidden (the full-width layout the pleos build uses), over a whole scripted drive: the
+  waiting card, the briefing, a place story, a quiz question and the wait for its answer, a
+  story held for a navigation prompt, the stop suggestion, the recommendation card with three
+  tiles (moving, where it is the full-size card, and parked beside the scoreboard, where it is
+  the compact one), the destination tip's single tile, the parked screen (card, scoreboard with
+  the crown, route strip) and the arrival. Nothing was clipped or overlapped, the app never
+  crashed, and a touch on a tile while parked added that spot as a waypoint. Changed after
+  looking: beside the picture the text column is as high as the picture (chip level with its
+  top, skip button on its foot); the caption keeps the room of all its lines, so the card does
+  not shift with each sentence; the parked card and the recommendation card are the full-size
+  card where they have the room; a single spot's tile lies on its side; the state line no
+  longer repeats a title that already says "듣고 있어요"; a notice's chip says "알림", not the
+  app's name a second time. The bottom 128 px of the window (the route strip's names, the three
+  shortcut buttons) cannot be seen on that PC. They were seen once in a throwaway build that
+  left the bottom 128 px of the window empty, so the card was that much lower than in the real
+  one: the names, "지금 여기" and the buttons drew where `ScreenFit` and `RouteStripPlan` put
+  them, and 먹거리 보기 brought up the tiles. The "화면을 눌러 패널 띄우기" hint was seen drawn
+  at the foot of the parked card. Not seen: the pleos build's screen (compiled only), every
+  arrangement for a narrow or low window (the compact driving card, tiles with names only, the
+  line of scores, the card stacked above the panel), and any of it in Android's own Korean
+  font, whose lines are higher than this emulator's. On this window the driving card's picture
+  and text take the middle half of the card's height and the rest is empty: the type has no
+  size larger than the full-size card's. In the mock build, pausing the drive stops the car but
+  not a segment the host is in the middle of, and a waypoint chosen early changes where the
+  scripted car stops (in one run it then drove past 횡성휴게소): both change what a timed
+  screenshot shows.
+  After that day's review the layer changed once more (build note `2026-11-16 · 2`): a light
+  cue washes the whole card, not only its border; a question the host waits on while parked
+  shows as the caption with captions off; a names-only tile has its badge above the name; in
+  a low window the caption and then the hint give way so that the skip button keeps its
+  height (`ScreenFit.leastHeightDp`, and "창이 낮음" in the diagnostics below it); tiles show
+  reasons only where a tile is wide enough for one; `MainActivity` holds the font scale at 1,
+  because `ScreenFit` adds up text heights in dp. Seen the same day in the same 1682×1172 dp
+  window with the demo panel open: the recommendation card asked for early in the drive
+  (횡성, 봉평, 초당두부마을) and the one asked for while parked at 횡성휴게소 both had the
+  chip "먹거리 추천" with no area, and a touch on the second tile while parked added it as a
+  waypoint; with 자막 switched off, the parked card showed no caption while the host spoke and
+  the rest-stop question, then each quiz question, while it waited for the answer; all three
+  right answers (one moving, two parked) showed in screenshots half a second apart as a green
+  wash over the whole card inside a thick green border, gone again about a second and a half
+  later (the chip's and the picture panel's faint fills cannot be told from the wash while
+  it lasts); the diagnostics gave the system's font scale as 1.0. Not seen: a card that has
+  given up caption lines or the hint, a names-only tile, a device whose font scale is not 1,
+  the arrival's yellow cue and the cards after arrival.
+  `ScreenFit`'s comment lists every piece of the three screens with
   its size: change a size in the views and there together. If something on screen or in speech
   misbehaves, suspect this layer first, not the core.
 - Gradle build files: on 2026-11-12 `assembleMockDebug` and `testMockDebugUnitTest` succeeded on
@@ -84,7 +119,8 @@ Be precise about what has and has not been verified when you report results, and
   `%USERPROFILE%\.gradle\jdks` from the address in that file, ran the daemon on it, and the 133
   tests passed there. Whether to keep the file is not decided; until it is, leave it alone like
   the other build tool versions. The build has not been tried with JDK 17 alone.
-  `assembleMockRelease` and the pleos build have not been run.
+  `assembleMockRelease` succeeded on 2026-11-15 (the APK in `apk/`; it has not been rebuilt
+  since); the pleos build is the next item.
 - `pleos` source set (the Pleos Connect SDK adapters): compiled against the real SDK on
   2026-11-15 (`assemblePleosDebug -Pgildongmu.pleos=true`; in PowerShell quote the `-P` argument)
   and run on the Pleos Connect emulator: the scripted demo drive played start to finish in the

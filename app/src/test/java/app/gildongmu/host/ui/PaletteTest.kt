@@ -1,5 +1,6 @@
 package app.gildongmu.host.ui
 
+import app.gildongmu.core.LightCue
 import app.gildongmu.core.Tone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -81,7 +82,30 @@ class PaletteTest {
     @Test
     fun noTwoTonesShareAColour() {
         assertEquals(Tone.values().size, Tone.values().map { Palette.tone(it) }.toSet().size)
-        assertNotEquals("A right answer flashes GOOD on a game's green border: it must show", Palette.GOOD, Palette.GAME)
+    }
+
+    @Test
+    fun aLightCueShowsOnTheWholeCard() {
+        assertEquals("Green means right", Palette.GOOD, Palette.cue(LightCue.CORRECT_ANSWER))
+        assertEquals(Palette.WARM, Palette.cue(LightCue.ARRIVAL))
+        // The border cannot carry a right answer: the quiz card's border is nearly the same green.
+        assertTrue(contrast(Palette.GOOD, Palette.GAME) < 1.2)
+
+        // So this checks what is painted while a cue shows, the card's fill: it has to be seen
+        // to change from the card at rest, and the text on the card has to stay readable on it.
+        for (cue in LightCue.values()) {
+            val fill = Palette.flash(cue)
+            assertEquals("$cue", Palette.over(Palette.cue(cue), Palette.FLASH_ALPHA, Palette.SURFACE), fill)
+            assertEquals("Opaque: it replaces the card's own fill", 0xFF, fill ushr 24)
+
+            val seen = contrast(fill, Palette.SURFACE)
+            assertTrue("$cue against the card at rest is $seen to 1", seen >= 1.4)
+            val shift = listOf(this::red, this::green, this::blue).maxOf { channel -> Math.abs(channel(fill) - channel(Palette.SURFACE)) }
+            assertTrue("$cue moves its strongest channel by $shift of 255", shift >= 30)
+
+            assertTrue("$cue: the title on it", contrast(Palette.TEXT, fill) >= 7.0)
+            assertTrue("$cue: the caption on it", contrast(Palette.TEXT_SECONDARY, fill) >= 4.5)
+        }
     }
 
     @Test

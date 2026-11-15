@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import app.gildongmu.core.LightCue
 import app.gildongmu.core.Tone
 
 /**
@@ -64,6 +65,26 @@ object Palette {
      * same whatever happens to lie under the view that has it.
      */
     fun faint(tone: Tone): Int = over(tone(tone), FAINT_ALPHA)
+
+    /**
+     * How much of a light cue's colour the card's fill takes while the cue shows. At this much
+     * the card is plainly not the surface any more, and the grey of the caption on it still
+     * reads (PaletteTest holds both).
+     */
+    const val FLASH_ALPHA = 0.18f
+
+    /** The colour of a light cue: green for a right answer, the warm yellow for the arrival. */
+    fun cue(cue: LightCue): Int = when (cue) {
+        LightCue.CORRECT_ANSWER -> GOOD
+        LightCue.ARRIVAL -> WARM
+    }
+
+    /**
+     * The card's fill while a light cue shows: the cue's colour at [FLASH_ALPHA] over [SURFACE].
+     * The cue has to show on the whole card, because its border may have the cue's colour
+     * already: a right answer's green is all but the green of the quiz card it is given on.
+     */
+    fun flash(cue: LightCue): Int = over(cue(cue), FLASH_ALPHA)
 
     /**
      * [color] laid over [base] at [alpha] (0 to 1), as one opaque colour. Plain arithmetic rather
