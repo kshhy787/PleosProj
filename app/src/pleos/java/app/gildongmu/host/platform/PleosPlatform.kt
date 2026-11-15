@@ -1,6 +1,7 @@
 package app.gildongmu.host.platform
 
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -26,12 +27,10 @@ import app.gildongmu.host.ui.HostScreen
 /**
  * Runs the host in the car, on the Pleos Connect SDK.
  *
- * STATUS: written from the public Pleos guides and NOT YET COMPILED against the SDK, because the
- * SDK repository was not reachable where this was written. The guides show how each SDK is set
- * up and called, but the reference pages with exact signatures do not render outside the Pleos
- * Playground. Every assumption is marked "VERIFY" in the adapter that makes it; expect to adjust
- * those lines on the first build with gildongmu.pleos=true. docs/pleos-integration.md has the
- * full list.
+ * STATUS: written from the public Pleos guides, then checked against the SDK's class files and
+ * compiled against the SDK (assemblePleosDebug). It has NOT RUN on a car or an emulator yet. What
+ * only a device can settle (permissions being granted, the services behind the SDKs, units) is
+ * marked "VERIFY" in the adapter it concerns; docs/pleos-integration.md has the full list.
  *
  * The host logic itself (app.gildongmu.core) is the same code the mock build runs and tests.
  */
@@ -132,8 +131,9 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
             return
         }
         val now = SystemClock.uptimeMillis()
-        // The SDK does not report "parked" directly (VERIFY: gear or parking brake may be readable
-        // through a domain not covered by the public guides), so it is derived here.
+        // "Parked" is derived here from position and charging. The Vehicle SDK can read the gear
+        // (Gear.registerGearSelection, VehicleGear.GEAR_PARK, under CAR_DRIVE), which would be
+        // the better source, but that is not wired up yet.
         when (signal) {
             is Signal.Location -> parked.onLocation(signal.point, now)?.let { runtime?.dispatch(Signal.Parked(it)) }
             is Signal.Battery -> parked.onCharging(signal.charging)?.let { runtime?.dispatch(Signal.Parked(it)) }
@@ -170,13 +170,20 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         navigation = attempt("NaviHelper") { PleosNavigation(activity, ::emit) }
         vehicle = attempt("Vehicle") { PleosVehicle(activity, ::emit).also { it.start() } }
         location = attempt("FusedLocation") { PleosLocation(activity, ::emit).also { it.start() } }
+        // FUSED_LOCATION is a dangerous permission: until it is granted, PleosLocation waits, and
+        // onPermissionsChanged starts it once the dialog is answered.
+        if (location != null && activity.checkSelfPermission(PleosLocation.PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(PleosLocation.PERMISSION), LOCATION_REQUEST)
+        }
         Log.i(TAG, "Voice: ${speaker?.describe()}")
 
         handle(Signal.Tick) // draws the first frame
         main.postDelayed(heartbeat, 1000)
     }
 
-    override fun onPermissionsChanged() {}
+    override fun onPermissionsChanged() {
+        location?.let { l -> attempt("FusedLocation") { l.start() } }
+    }
 
     /** Hands the trip over to the scripted car. See [demo]. */
     private fun startDemoDrive() {
@@ -251,5 +258,6 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
         const val WORDS = "games/word-chain.txt"
         const val DEMO_TICK_MS = 100L
+        const val LOCATION_REQUEST = 1
     }
 }

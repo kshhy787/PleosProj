@@ -15,23 +15,33 @@ import app.gildongmu.host.speech.Speaker
 import java.util.Locale
 
 /**
- * Speech through the Pleos TextToSpeech SDK (ai.pleos.playground:TextToSpeech).
+ * Speech through the Pleos TextToSpeech SDK (ai.pleos.playground:TextToSpeech:3.3.1).
  *
- * From the guide pages (initialization, event listeners, start and stop, set locale):
- *   TextToSpeech(applicationContext, Mode.ON_DEVICE); initialize(OnInitializeListener);
- *   addEventListener(EventListener); setLocale(Locale.KOREA); speak(text); stop(); release().
- *   EventListener: onReady, onStart, onUpdatedRms(rms: Double), onDone, onStop, onError(errorType).
- *   ON_DEVICE mode needs no app registration; SERVER and HYBRID need registerApp(clientID, clientSecret).
+ * Checked against the SDK's class files:
+ *   TextToSpeech(context, Mode) - the default mode is HYBRID, so ON_DEVICE is passed explicitly;
+ *   initialize(OnInitializeListener), whose onSuccess or onFailure(ErrorType) comes at most once;
+ *   addEventListener / removeEventListener(EventListener); setLocale(Locale);
+ *   speak(text, isFinal = true); stop(); release().
+ *   EventListener has exactly onReady, onStart, onUpdatedRms(Double), onDone, onStop and
+ *   onError(ErrorType). ErrorType and Mode are in ...tts.constant.
+ *   ON_DEVICE needs no registerApp (only SERVER and HYBRID use it); it binds to the car's speech
+ *   service (ai.pleos.playground.caas).
+ *   Every call except the constructor needs pleos.car.permission.TTS_SERVICE (declared in the
+ *   pleos manifest) and throws SecurityException without it; if initialize throws, the platform
+ *   falls back to captions.
  *
- * VERIFY on first build:
- *   - the package of ErrorType (assumed to sit beside Mode in ...tts.constant)
- *   - whether EventListener has further abstract methods
+ * VERIFY on a device:
+ *   - whether the TTS_SERVICE permission is granted to the app, and the car's speech service binds
+ *   - whether every sentence gets exactly one onDone, and what stop() and a speak() during a
+ *     sentence report
+ *   - whether the on-device engine accepts Locale.KOREA (it would report UNAVAILABLE_LANGUAGE)
  *
  * This class is only the wiring to the SDK. When a sentence is over is decided by [SpeechGuard],
  * the same tested logic the mock build uses: if the engine does not start, never reports, or
  * reports without having spoken, the host carries on at reading pace and [onStatus] says why.
  *
- * Must be used from the main thread, where its callbacks also arrive.
+ * Must be used from the main thread. The SDK's callbacks arrive on a binder thread (onFailure
+ * possibly inside initialize itself), so every one of them is posted to the main thread first.
  */
 class PleosSpeaker(
     context: Context,

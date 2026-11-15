@@ -65,8 +65,12 @@ Be precise about what has and has not been verified when you report results, and
   tests passed there. Whether to keep the file is not decided; until it is, leave it alone like
   the other build tool versions. The build has not been tried with JDK 17 alone.
   `assembleMockRelease` and the pleos build have not been run.
-- `pleos` source set (the Pleos Connect SDK adapters): never compiled against the real SDK. Off
-  by default. `docs/pleos-integration.md` lists every assumption to check, file by file.
+- `pleos` source set (the Pleos Connect SDK adapters): compiled against the real SDK on
+  2026-11-15 (`assemblePleosDebug -Pgildongmu.pleos=true`; in PowerShell quote the `-P` argument)
+  and run on the Pleos Connect emulator: the scripted demo drive played start to finish in the
+  Pleos voice, every sentence synthesized and reported done (from the logs; nobody listened, the
+  emulator had no audio). Navigation, location, speech recognition and waypoints are untried on a
+  device. Off by default. `docs/pleos-integration.md` has what the SDK confirmed and what is left.
 - `pipeline/` (Python): tested with stand-ins for Wikipedia, TourAPI and Claude; never run live.
 
 ## Layout
@@ -151,22 +155,18 @@ In this order. Each item says how to tell it is done.
    card's title and caption were readable and the drive reached Gangneung about six minutes after
    주행 시작, with captions only. To repeat it: build `mockDebug`, start it, press 주행 시작, take
    a screenshot and read the `진단:` line.
-2. **Get a voice.** The mock build speaks through Android's `TextToSpeech`, which needs an engine
-   on the image. On the Pleos Connect image used on 2026-11-12 (`release_connect_v2.1.0`) it finds
-   none (`Android 엔진 0개` in the diagnostics): the image's speech service (`SpeechService` in
-   `ai.pleos.playground.caas`) has no DEFAULT category in its intent filter, and `TextToSpeech`
-   only finds engines that have one. From the Android 14 source, naming the engine would not help
-   and the app's manifest cannot fix it; neither has been tried on the device. Whether the stock
-   Automotive image has an engine is still unknown. Without one the demo is captions only, by
-   design. On the Pleos emulator the voice is meant to come from the Pleos TextToSpeech SDK, which
-   has not been tried yet: set `gildongmu.pleos=true` in `gradle.properties`, build `pleosDebug`,
-   and fix the compile errors against the real SDK using `docs/pleos-integration.md`. Start with
-   `PleosSpeaker.kt`; it is small. In the pleos build, press and hold the destination at the top
-   left to start the same scripted drive in the car's voice (`PleosPlatform.startDemoDrive`). Done
-   when the briefing is heard; an AI assistant cannot hear the emulator, so ask the user.
+2. **Get a voice.** Nearly done. The mock build's Android `TextToSpeech` finds no engine on the
+   Pleos Connect image (`Android 엔진 0개` in the diagnostics: the image's speech service has no
+   DEFAULT category, and `TextToSpeech` only finds engines that have one), so the mock demo is
+   captions only there, by design. The voice comes from the pleos build instead: on 2026-11-15 it
+   was compiled against the real SDK and, on the Pleos emulator, a long press on the destination
+   (`PleosPlatform.startDemoDrive`) played the whole scripted drive in the Pleos voice; the logs
+   show every sentence synthesized, played for its length and reported done. Done when the user
+   has heard it: the emulator ran without audio, and an AI assistant cannot hear it anyway.
 3. **Record the demo and build the APK.** `docs/demo-script.md` has the transcript with timings
-   and a suggested short cut. The release APK goes in `apk/` under the name the contest asks for.
-   Until item 2 is done, a recording on the Pleos Connect emulator is captions only. So is the
-   release APK on that emulator, because it is the mock build (see `apk/README.md`).
+   and a suggested short cut. For a recording with the car's voice, use the pleos build's long
+   press on the Pleos emulator; real speech lasts a little longer or shorter than the estimates,
+   so the destination tip may come or go. The release APK is in `apk/` (the mock build, built by
+   the user on 2026-11-15; see `apk/README.md`); on the Pleos emulator it is captions only.
 4. **Wire up what the pleos build still lacks**: turn-by-turn prompts (`onTBTInfo`), a real
    parked signal, the cabin light. `docs/pleos-integration.md` has the list.

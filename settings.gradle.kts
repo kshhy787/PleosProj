@@ -23,6 +23,9 @@ dependencyResolutionManagement {
             url = uri("https://nexus-playground.pleos.ai/repository/maven-releases/")
             content {
                 includeGroup("ai.pleos.playground")
+                // TextToSpeech and SpeechToText depend on
+                // ai.pleos.playground.security:universal-access, which is only on this repository.
+                includeGroup("ai.pleos.playground.security")
             }
         }
     }

@@ -9,18 +9,26 @@ import android.content.Context
 import android.util.Log
 
 /**
- * Listening through the Pleos SpeechToText SDK (ai.pleos.playground:SpeechToText).
+ * Listening through the Pleos SpeechToText SDK (ai.pleos.playground:SpeechToText:3.3.1).
  *
- * From the guide pages (result listeners, start and stop):
- *   SpeechToText(applicationContext, Mode.ON_DEVICE); initialize(); addListener(ResultListener);
- *   request() to start; stop(); removeListener(); release().
- *   ResultListener: onReady, onStartedRecognition, onUpdated(stt: String, completed: Boolean),
- *   onUpdatedEpdData(on: Long, off: Long), onUpdatedRms(rms: Double), onEndedRecognition,
- *   onError(errorType). The recognised text is the `stt` argument; completed marks the final result.
+ * Checked against the SDK's class files:
+ *   SpeechToText(context, Mode) - the default mode is HYBRID (the server path), so ON_DEVICE is
+ *   passed explicitly; initialize(OnInitializeListener) binds the car's speech service
+ *   (ai.pleos.playground.caas) and calls onSuccess or onFailure(ErrorType) at most once;
+ *   addListener(ResultListener); request() to start; stop(); removeListener(); release().
+ *   ResultListener has exactly onReady, onStartedRecognition, onUpdated(stt: String, completed: Boolean),
+ *   onUpdatedEpdData(on: Long, off: Long), onUpdatedRms(rms: Double), onEndedRecognition and
+ *   onError(ErrorType). The recognised text is the `stt` argument; completed marks the final result.
+ *   ErrorType and Mode are in ...stt.constant. ON_DEVICE needs no registerApp.
+ *   The SDK delivers these callbacks, and onSuccess, on the main thread.
+ *   Every call except the constructor needs pleos.car.permission.STT_SERVICE (declared in the
+ *   pleos manifest) and throws SecurityException without it; PleosPlatform then runs without a
+ *   microphone.
  *
- * VERIFY on first build:
- *   - the package of ErrorType (assumed to sit beside Mode in ...stt.constant)
- *   - that initialize takes an OnInitializeListener with onSuccess/onFailure, as TextToSpeech does
+ * VERIFY on a device:
+ *   - whether the STT_SERVICE permission is granted to the app, and the car's speech service binds
+ *   - the recogniser's default language (setLocale(Locale) exists if it is not Korean)
+ *   - whether the app itself needs RECORD_AUDIO granted at run time, which nothing asks for yet
  */
 class PleosListener(context: Context, private val onHeard: (text: String) -> Unit) {
 

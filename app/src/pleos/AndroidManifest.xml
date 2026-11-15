@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Added to the main manifest for the "pleos" flavor only. Each permission is the one the Pleos
-    Connect documentation names for the SDK calls this app makes; every one of them has to be
-    approved for the app in the Pleos App Market before release.
+    Added to the main manifest for the "pleos" flavor only. Each permission is one the Pleos
+    Connect SDK checks for the calls this app makes (read from the SDK's class files); every one
+    of them has to be approved for the app in the Pleos App Market before release. The SDKs' own
+    manifests add their service-binding permissions and <queries> entries, which merge in by
+    themselves.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- TextToSpeech / SpeechToText in server or hybrid mode. On-device mode needs no network. -->
+    <!-- TextToSpeech / SpeechToText in server or hybrid mode. On-device mode needs no network.
+         Both SDKs also declare it themselves, for a validation check. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- TextToSpeech: every call except the constructor (initialize, speak, stop, release, ...)
+         throws SecurityException without it. -->
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+
+    <!-- SpeechToText: every call except the constructor (initialize, request, stop, release, ...)
+         throws SecurityException without it. -->
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
 
     <!-- NaviHelper: route and destination information; adding a waypoint. -->
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
@@ -19,7 +30,8 @@
     <!-- Vehicle SDK: EvBattery (state of charge, charging). -->
     <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
 
-    <!-- FusedLocation. -->
+    <!-- FusedLocation. The SDK calls it a dangerous permission, so it is also asked for at run
+         time (PleosPlatform). -->
     <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
 
 </manifest>
