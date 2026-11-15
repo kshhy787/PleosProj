@@ -58,8 +58,11 @@ class DemoDriveTest {
         return Run(platform, lines, finishedAtMs / 60000.0, platform.snapshot!!)
     }
 
-    /** Checks the beats of the demo, in order. */
-    private fun assertStoryline(run: Run) {
+    /**
+     * Checks the beats of the demo, in order. The tip about the destination is said only if it fits
+     * before the last story, so it is required only where [tipRequired] says the voice leaves room.
+     */
+    private fun assertStoryline(run: Run, tipRequired: Boolean) {
         val spoken = run.platform.spoken
         fun indexOf(fragment: String): Int {
             val index = spoken.indexOfFirst { it.contains(fragment) }
@@ -67,7 +70,11 @@ class DemoDriveTest {
             return index
         }
 
-        val beats = listOf(
+        val tips = spoken.count { it.contains(TIP) }
+        assertTrue("The tip about the destination is said at most once", tips <= 1)
+        if (tipRequired) assertEquals("The host should mention a place to visit at the destination", 1, tips)
+
+        val beats = listOfNotNull(
             "길동무예요",              // departure briefing
             "세종대왕의 무덤",          // a story as the car passes Yeoju
             "퀴즈 시간",               // the quiz a passenger asked for
@@ -78,6 +85,7 @@ class DemoDriveTest {
             "이효석이 태어난 마을",      // the long story, told while parked
             "퀴즈 결승",
             "대관령을 넘어야 해요",
+            TIP.takeIf { tips > 0 }, // in the gap before the last story, if there is one
             "오죽헌이라는 오래된 집",
             "도착했어요"
         ).map { it to indexOf(it) }
@@ -133,19 +141,25 @@ class DemoDriveTest {
             val t = line.atMs / 1000
             println("%02d:%02d  %-6s %s".format(t / 60, t % 60, line.kind, line.text))
         }
-        assertStoryline(run)
+        assertStoryline(run, tipRequired = true)
         assertTrue("The demo should take about six minutes, took ${run.minutes}", run.minutes in 5.0..7.0)
     }
 
     @Test
     fun theDemoSurvivesAVoiceThatSpeaksMoreSlowlyThanEstimated() {
         // Real speech engines differ. With every sentence taking a quarter longer, the car still
-        // must not outrun the host: no story may be skipped or cut off.
-        assertStoryline(play(slowdown = 1.25))
+        // must not outrun the host: no story may be skipped or cut off. The tip about the
+        // destination may be left out instead, since it is the one thing the host can do without.
+        assertStoryline(play(slowdown = 1.25), tipRequired = false)
     }
 
     @Test
     fun theDemoSurvivesAVoiceThatSpeaksFasterThanEstimated() {
-        assertStoryline(play(slowdown = 0.8))
+        assertStoryline(play(slowdown = 0.8), tipRequired = true)
+    }
+
+    private companion object {
+        /** How the host's tip about a place at the destination begins. */
+        const val TIP = "도착해서 들러 볼 만한"
     }
 }

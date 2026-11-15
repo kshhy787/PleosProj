@@ -4,7 +4,7 @@ import app.gildongmu.core.ListenMode
 import app.gildongmu.core.RouteGeometry
 import app.gildongmu.core.RoutePackage
 import app.gildongmu.core.Signal
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -19,10 +19,21 @@ import kotlin.math.roundToInt
  */
 class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
 
+    private companion object {
+        /**
+         * A waypoint closer than this to the end of the route is driven past. A spot by the
+         * destination meets the route on its last stretch; stopping there would put a rest just
+         * before the arrival instead of ending the drive.
+         */
+        const val END_SLACK_KM = 2.0
+    }
+
     private class Timer(val atMs: Long, val signal: Signal, val isReply: Boolean)
 
+    /** Where the car will stop: a waypoint, and the point where it meets the route. */
+    private class PlannedStop(val waypoint: Waypoint, val routeKm: Double)
+
     private val geometry = RouteGeometry(pkg.polyline)
-    private val stopKm: Map<String, Double> = pkg.stops.associate { it.id to geometry.project(it.location).routeKm }
 
     private var realMs = 0L
     private var started = false
@@ -33,7 +44,7 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
     private val timers = ArrayList<Timer>()
     private var quizReplies = 0
 
-    private var acceptedStop: Stop? = null
+    private var plannedStop: PlannedStop? = null
     private var restingAt: ScenarioStop? = null
     private var restRemainingMs = 0.0
     private var restChargePerMs = 0.0
@@ -53,8 +64,8 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
 
     val routeLengthKm: Double get() = geometry.lengthKm
 
-    /** The stop the host asked navigation to add, until the car has left it. */
-    val waypoint: Stop? get() = acceptedStop
+    /** The waypoint the car is going to stop at, until it has left it. */
+    val waypoint: Waypoint? get() = plannedStop?.waypoint
 
     /** When false, scripted passenger replies are off and someone has to answer the host. */
     var autoRepliesEnabled = true
@@ -84,9 +95,15 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         return out
     }
 
-    /** The host asked navigation to add [stop] to the route. */
-    fun onWaypointAdded(stop: Stop) {
-        if (stopKm.getValue(stop.id) > progressKm) acceptedStop = stop
+    /**
+     * The host asked navigation to add [waypoint] to the route. The scripted car never leaves the
+     * route, so it stops where the waypoint meets it: if that point is still ahead, and at least
+     * [END_SLACK_KM] before the end. The point is found by projection, since a spot is not one of
+     * the package's stops.
+     */
+    fun onWaypointAdded(waypoint: Waypoint) {
+        val km = geometry.project(waypoint.location).routeKm
+        if (km > progressKm && km <= geometry.lengthKm - END_SLACK_KM) plannedStop = PlannedStop(waypoint, km)
     }
 
     /** The host started listening; schedule the scripted reply, if the scenario has one. */
@@ -103,6 +120,10 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
                     else -> script
                 }
             }
+            // Without a scripted choice nobody answers, and the host's offer lapses.
+            ListenMode.CHOICE -> replies.choice
+            // The scripted player says the first of the host's hints, a word it is sure to accept.
+            ListenMode.WORD -> expected.firstOrNull()
         } ?: return
         timers.add(Timer(realMs + replies.delayMs, Signal.Utterance(text), isReply = true))
     }
@@ -125,8 +146,8 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         val kph = leg.kph
         var targetKm = progressKm + kph * simulatedHours
 
-        val stop = acceptedStop
-        val stopAt = stop?.let { stopKm.getValue(it.id) }
+        val stop = plannedStop
+        val stopAt = stop?.routeKm
         val reachesStop = stopAt != null && targetKm >= stopAt
         if (stopAt != null && reachesStop) targetKm = stopAt
         val reachesEnd = !reachesStop && targetKm >= geometry.lengthKm
@@ -143,7 +164,7 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         fireEvents(out)
 
         if (stop != null && reachesStop) {
-            park(stop, out)
+            park(stop.waypoint, out)
         } else if (reachesEnd) {
             arrived = true
             out.add(Signal.DestinationArrived)
@@ -167,12 +188,13 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         }
     }
 
-    private fun park(stop: Stop, out: MutableList<Signal>) {
-        val plan = scenario.stops.firstOrNull { it.stopId == stop.id } ?: ScenarioStop(stop.id, 30.0, null)
+    private fun park(waypoint: Waypoint, out: MutableList<Signal>) {
+        // A rest stop the scenario plans for keeps its plan; anywhere else is a half-minute break.
+        val plan = scenario.stops.firstOrNull { it.stopId == waypoint.id } ?: ScenarioStop(waypoint.id, 30.0, null)
         restingAt = plan
         restRemainingMs = plan.seconds * 1000.0
         val target = plan.chargeToPercent
-        val gain = if (stop.hasCharger && target != null) target - battery else 0.0
+        val gain = if (waypoint.hasCharger && target != null) target - battery else 0.0
         val charges = gain > 0.0 && restRemainingMs > 0.0
         restChargePerMs = if (charges) gain / restRemainingMs else 0.0
         reportBattery(charging = charges, out = out)
@@ -188,7 +210,7 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         }
         if (restRemainingMs <= 0.0) {
             restingAt = null
-            acceptedStop = null
+            plannedStop = null
             reportBattery(charging = false, out = out)
             out.add(Signal.Parked(false))
         }

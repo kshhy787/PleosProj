@@ -52,8 +52,21 @@ sealed interface Signal {
     data object DestinationArrived : Signal
 }
 
-/** What kind of reply the host is waiting for. */
-enum class ListenMode { YES_NO, QUIZ_ANSWER }
+/**
+ * What kind of reply the host is waiting for. Each kind of question has its own mode, even where
+ * the timeout is the same, so that whoever answers (the scripted passengers, the demo panel's
+ * buttons) can tell them apart.
+ */
+enum class ListenMode {
+    YES_NO,
+    QUIZ_ANSWER,
+
+    /** Which of the spots just recommended to go to, by number or by name. */
+    CHOICE,
+
+    /** A player's word in 끝말잇기. */
+    WORD
+}
 
 /** A moment worth marking with the cabin's ambient light. */
 enum class LightCue { CORRECT_ANSWER, ARRIVAL }
@@ -79,8 +92,8 @@ sealed interface Action {
     /** Stop listening. SpeechToText `stop`. */
     data object CancelListen : Action
 
-    /** Add [stop] to the navigation route. NaviHelper `addWaypoint`. */
-    data class AddWaypoint(val stop: Stop) : Action
+    /** Add [waypoint], a rest stop or a chosen spot, to the navigation route. NaviHelper `addWaypoint`. */
+    data class AddWaypoint(val waypoint: Waypoint) : Action
 
     /** Flash the ambient light. Vehicle SDK Light. */
     data class Light(val cue: LightCue) : Action
@@ -98,7 +111,13 @@ enum class SegmentKind(val label: String) {
     STOP_SUGGESTION("정차 제안"),
     REST("쉬어 가기"),
     WRAP_UP("오늘의 기록"),
-    NOTICE("길동무")
+    NOTICE("길동무"),
+
+    /** Places to eat or to see, which can become waypoints. */
+    RECOMMENDATION("먹거리·볼거리"),
+
+    /** Riddles and 끝말잇기: just for fun, where the quiz is about the places passed. */
+    GAME("놀이")
 }
 
 /** The now-playing card: all a driver ever sees while the car is moving. */
@@ -138,5 +157,10 @@ data class HostSnapshot(
     /** The next place the host will talk about, for the idle card: "치악산 · 23km". */
     val upNext: String?,
     val scores: List<PlayerScore>,
-    val places: List<PlaceStatus>
+    val places: List<PlaceStatus>,
+    /**
+     * The spots being recommended, while the host reads them out and waits for a choice, so that a
+     * screen can show them as well. Empty the rest of the time.
+     */
+    val offers: List<Spot> = emptyList()
 )

@@ -2,6 +2,7 @@ package app.gildongmu.core
 
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -14,11 +15,25 @@ import kotlin.math.roundToInt
  * The order of precedence is fixed:
  *  1. safety: a vehicle warning or an imminent navigation prompt silences the host
  *  2. a stop suggestion (two hours of driving, or a low battery)
- *  3. a story about the place the car is passing
- *  4. a quiz, when a passenger asks or the cabin has been quiet for a while
- *  5. otherwise, silence
+ *  3. what a passenger asked for: a story, or somewhere to eat, to have coffee or to see
+ *  4. a story about the place the car is passing
+ *  5. riddles or 끝말잇기, when a passenger asks
+ *  6. once, near the end, a place worth a visit at the destination
+ *  7. a quiz, when a passenger asks or the cabin has been quiet for a while
+ *  8. otherwise, silence
+ *
+ * A request for somewhere to eat goes before the place being passed, because whoever asked is
+ * hungry now; a game goes after it, because the place is soon behind the car and the game can wait.
+ *
+ * [words] are the words the host may say in 끝말잇기 (see [WordChainGame]). They are passed in
+ * rather than read here, which keeps the engine free of files: the platforms read the bundled list,
+ * tests give a few words of their own.
  */
-class HostEngine(private val pkg: RoutePackage, private val config: HostConfig = HostConfig()) {
+class HostEngine(
+    private val pkg: RoutePackage,
+    private val config: HostConfig = HostConfig(),
+    private val words: List<String> = emptyList()
+) {
 
     private companion object {
         /** Stuck in traffic or parked: there is time for the longest story. */
@@ -26,6 +41,21 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
 
         /** What a yes/no question expects to hear; a recogniser can use it as a hint. */
         val YES_NO_WORDS = listOf("응", "아니")
+
+        /** How the spots of a recommendation are numbered. More than three are hard to remember. */
+        val ORDINALS = listOf("첫 번째", "두 번째", "세 번째")
+
+        /** "세 군데": how many spots a recommendation names. */
+        val COUNTS = listOf("한", "두", "세")
+
+        /** Closer to arriving than this, a tip about the destination comes too late to plan for. */
+        const val TIP_MIN_MINUTES = 3.0
+
+        /** A spot this close to a place with a story is that place: a tip would repeat the story. */
+        const val SAME_PLACE_KM = 1.0
+
+        /** What the destination tip may be about. */
+        val TIP_CATEGORIES = setOf(SpotCategory.FOOD, SpotCategory.SIGHT)
     }
 
     private enum class Hold { TURN, AUDIO }
@@ -36,6 +66,8 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         val title: String,
         val subtitle: String,
         val sentences: List<String>,
+        /** The spots these sentences recommend, for the screen. */
+        val offers: List<Spot> = emptyList(),
         val onDone: (MutableList<Action>) -> Unit
     ) {
         var index = 0
@@ -59,14 +91,67 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             override val mode = ListenMode.YES_NO
         }
 
-        class QuizReply(val question: QuizQuestion, val player: String, override val deadlineMs: Long) : Listening {
+        /** An answer to a quiz question or a riddle; [kind] tells the screen which. */
+        class QuizReply(
+            val question: QuizQuestion,
+            val player: String,
+            val kind: SegmentKind,
+            override val deadlineMs: Long
+        ) : Listening {
             override val mode = ListenMode.QUIZ_ANSWER
+        }
+
+        /** Which of [spots], just read out under [title], the passengers want; [question] is how it was asked. */
+        class Choice(
+            val spots: List<Spot>,
+            val title: String,
+            val question: String,
+            override val deadlineMs: Long
+        ) : Listening {
+            override val mode = ListenMode.CHOICE
+        }
+
+        /** [player]'s turn in 끝말잇기: a word that starts with [syllable]. */
+        class WordTurn(val player: String, val syllable: String, override val deadlineMs: Long) : Listening {
+            override val mode = ListenMode.WORD
         }
     }
 
-    private class QuizRound(val questions: List<QuizQuestion>) {
+    /**
+     * Questions asked in turn and scored: a quiz on the places, or riddles. [kind] and [name] are
+     * what the cards and the host call it ("퀴즈 1/3", "수수께끼 끝!").
+     */
+    private class QuizRound(val questions: List<QuizQuestion>, val kind: SegmentKind, val name: String) {
         var index = 0
     }
+
+    /**
+     * Something a passenger asked for that the host has not got to yet. Only the latest counts: a
+     * new request replaces one still waiting, since what they want now matters, not a minute ago.
+     */
+    private sealed interface Request {
+        /** Somewhere to eat, to have coffee or to see, around [area] if they said where. */
+        class Spots(val category: SpotCategory, val area: SpotArea?) : Request
+
+        data object Riddles : Request
+
+        data object WordChain : Request
+    }
+
+    /** A game of 끝말잇기 under way: the referee, and how far the players have got. */
+    private class WordGame(val referee: WordChainGame) {
+        /** Words the players have said that kept the game going. */
+        var playerWords = 0
+
+        /** Turns handed out so far, which says whose turn is next. */
+        var turns = 0
+    }
+
+    /**
+     * A waypoint the passengers agreed to, and how far along the route it is. The distance is
+     * worked out once, by projection, because only rest stops are in [stopKm]: a spot is not.
+     */
+    private class AcceptedWaypoint(val waypoint: Waypoint, val routeKm: Double)
 
     private val geometry = RouteGeometry(pkg.polyline)
     private val poiKm: Map<String, Double> = pkg.pois.associate { it.id to geometry.project(it.location).routeKm }
@@ -74,6 +159,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
     private val poisInOrder: List<Poi> = pkg.pois.sortedBy { poiKm.getValue(it.id) }
     private val stopsInOrder: List<Stop> = pkg.stops.sortedBy { stopKm.getValue(it.id) }
     private val players: List<String> = config.players.ifEmpty { listOf("가족") }
+    private val spotPicker = SpotPicker(pkg, geometry)
 
     // What the car last reported.
     private var nowMs = 0L
@@ -112,11 +198,15 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
     private val scores = LinkedHashMap<String, Int>().apply { players.forEach { put(it, 0) } }
     private var playerTurn = 0
     private val declinedStops = HashSet<String>()
-    private var acceptedStop: Stop? = null
+    private var accepted: AcceptedWaypoint? = null
     private var lastRestTripMinutes = 0.0
     private var lastSuggestTripMinutes = Double.NEGATIVE_INFINITY
     private var quizRequested = false
     private var storyRequested = false
+    private var pendingRequest: Request? = null
+    private val recommended = HashSet<String>()
+    private var tipGiven = false
+    private var wordGamesPlayed = 0
     private var toldCountAtLastIdleQuiz = 0
     private var lastSegmentEndMs = 0L
 
@@ -124,6 +214,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
     private var segment: Segment? = null
     private var listening: Listening? = null
     private var quiz: QuizRound? = null
+    private var wordGame: WordGame? = null
     private var utteranceSeq = 0
     private var currentUtteranceId: String? = null
 
@@ -203,8 +294,8 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         for (poi in poisInOrder) {
             if (poi.id !in told && progressKm > poiKm.getValue(poi.id) + config.storyTrailKm) passed.add(poi.id)
         }
-        val accepted = acceptedStop
-        if (accepted != null && progressKm > stopKm.getValue(accepted.id) + config.stopLeadMinKm) acceptedStop = null
+        val via = accepted
+        if (via != null && progressKm > via.routeKm + config.stopLeadMinKm) accepted = null
     }
 
     private fun onParked(nowParked: Boolean, out: MutableList<Action>) {
@@ -216,7 +307,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             restingSinceMs = nowMs
             restOffered = false
             lastRestTripMinutes = tripMinutes
-            acceptedStop = null
+            accepted = null
             quiet = false
         } else if (!nowParked && phase == Phase.RESTING) {
             phase = Phase.DRIVING
@@ -256,6 +347,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             abandonSegment(out)
             cancelListening(out)
             quiz = null
+            wordGame = null
         }
     }
 
@@ -268,7 +360,8 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         val command = Understanding.commandOf(text)
         // These two apply whatever the host is doing, even in the middle of a question.
         if (command == Intent.QUIET) {
-            goQuiet(out)
+            // In 끝말잇기, "그만" is about the game, not the trip: it ends the game and nothing else.
+            if (wordGame != null && saysEnoughOfTheGame(text)) stopWordGame(out) else goQuiet(out)
             return
         }
         if (command == Intent.SKIP) {
@@ -294,12 +387,16 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                 }
             }
             is Listening.QuizReply -> grade(waiting, text, out)
+            is Listening.Choice -> onChoice(waiting, text, out)
+            is Listening.WordTurn -> onWord(waiting, text, out)
+            // Requests are only heard here, never as an answer: "커피" may be a word in 끝말잇기.
             null -> when (command) {
                 Intent.RESUME -> if (quiet) {
                     quiet = false
                     if (segment == null) notice("네, 다시 이야기할게요.", out)
                 }
-                Intent.QUIZ -> if (quiz == null) {
+                // Asking for what is already going on does not ask for more of it.
+                Intent.QUIZ -> if (quiz?.kind != SegmentKind.QUIZ) {
                     quizRequested = true
                     quiet = false
                 }
@@ -307,9 +404,29 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                     storyRequested = true
                     quiet = false
                 }
+                Intent.FOOD -> requestSpots(SpotCategory.FOOD, text)
+                Intent.CAFE -> requestSpots(SpotCategory.CAFE, text)
+                Intent.SIGHT -> requestSpots(SpotCategory.SIGHT, text)
+                Intent.RIDDLE -> if (quiz?.kind != SegmentKind.GAME) queueRequest(Request.Riddles)
+                Intent.WORD_CHAIN -> if (wordGame == null) queueRequest(Request.WordChain)
                 else -> {}
             }
         }
+    }
+
+    private fun requestSpots(category: SpotCategory, text: String) =
+        queueRequest(Request.Spots(category, Understanding.areaOf(text, pkg.destination.name)))
+
+    /** Notes what a passenger asked for, to be done when nothing more important is due. Asking ends quiet. */
+    private fun queueRequest(request: Request) {
+        pendingRequest = request
+        quiet = false
+    }
+
+    /** "그만", "그만할래": enough of the game. "조용히" still asks for quiet, game or not. */
+    private fun saysEnoughOfTheGame(text: String): Boolean {
+        val said = Korean.compact(text)
+        return "그만" in said && "조용" !in said
     }
 
     private fun onSpeechFinished(utteranceId: String, out: MutableList<Action>) {
@@ -331,8 +448,10 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         phase = Phase.ARRIVED
         quiet = false
         quiz = null
+        wordGame = null
         quizRequested = false
         storyRequested = false
+        pendingRequest = null
         abandonSegment(out)
         cancelListening(out)
     }
@@ -346,6 +465,11 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                 waiting.onSilence(out)
             }
             is Listening.QuizReply -> grade(waiting, null, out)
+            is Listening.Choice -> {
+                cancelListening(out)
+                notice("대답이 없어서 넘어갈게요.", out)
+            }
+            is Listening.WordTurn -> hostWinsWordGame("시간이 다 됐어요.", out)
         }
     }
 
@@ -369,12 +493,23 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                     tellRequestedStory(out)
                     return
                 }
+                if (pendingRequest is Request.Spots) {
+                    serveRequest(out)
+                    return
+                }
                 if (tellStory(out)) return
+                if (pendingRequest != null) {
+                    serveRequest(out)
+                    return
+                }
+                if (tellDestinationTip(out)) return
                 if (quizDue()) startQuiz(isFinal = false, out = out)
             }
             Phase.RESTING -> {
                 if (storyRequested) {
                     tellRequestedStory(out)
+                } else if (pendingRequest != null) {
+                    serveRequest(out)
                 } else if (quizRequested) {
                     startQuiz(isFinal = false, out = out)
                 } else if (!restOffered && nowMs - restingSinceMs >= config.restSettleMs) {
@@ -411,7 +546,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
     }
 
     private fun suggestStop(out: MutableList<Action>): Boolean {
-        if (acceptedStop != null) return false
+        if (accepted != null) return false
         if (tripMinutes - lastSuggestTripMinutes < config.suggestCooldownMinutes) return false
 
         val sinceRest = tripMinutes - lastRestTripMinutes
@@ -442,8 +577,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                 title = stop.name,
                 question = question,
                 onYes = { yes ->
-                    acceptedStop = stop
-                    yes.add(Action.AddWaypoint(stop))
+                    addWaypoint(stop.toWaypoint(), yes)
                     notice("네, ${Korean.eulReul(stop.name)} 경유지로 추가했어요.", yes)
                 },
                 onNo = { no ->
@@ -460,17 +594,28 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         return true
     }
 
-    private fun tellStory(out: MutableList<Action>): Boolean {
-        val poi = poisInOrder.firstOrNull { candidate ->
-            val km = poiKm.getValue(candidate.id)
-            candidate.id !in told && candidate.id !in passed &&
-                progressKm >= km - config.storyLeadKm && progressKm <= km + config.storyTrailKm
-        } ?: return false
+    /**
+     * Asks navigation to go via [waypoint], which then counts as the trip's next stop until the car
+     * has passed it or parked: no stop is suggested meanwhile, and stories are timed to end before it.
+     */
+    private fun addWaypoint(waypoint: Waypoint, out: MutableList<Action>) {
+        accepted = AcceptedWaypoint(waypoint, geometry.project(waypoint.location).routeKm)
+        out.add(Action.AddWaypoint(waypoint))
+    }
 
-        val variant = chooseVariant(poi.story, storyWindowSeconds(poi)) ?: return false
+    private fun tellStory(out: MutableList<Action>): Boolean {
+        val poi = poisInOrder.firstOrNull { storyDue(it) } ?: return false
+        val variant = chooseVariant(poi.story, windowSeconds(except = poi)) ?: return false
         told.add(poi.id)
         start(Segment(SegmentKind.STORY, poi.story.title, placeLabel(poi), Speech.sentences(variant.text)) {}, out)
         return true
+    }
+
+    /** Whether the story of [poi] is due: not told yet, and the car within range of the place. */
+    private fun storyDue(poi: Poi): Boolean {
+        val km = poiKm.getValue(poi.id)
+        return poi.id !in told && poi.id !in passed &&
+            progressKm >= km - config.storyLeadKm && progressKm <= km + config.storyTrailKm
     }
 
     /** A passenger asked for a story: tell the next one on the route, even if the place is still ahead. */
@@ -485,7 +630,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             tellRestStory(poi, out)
             return
         }
-        val variant = chooseVariant(poi.story, storyWindowSeconds(poi)) ?: poi.story.shortest
+        val variant = chooseVariant(poi.story, windowSeconds(except = poi)) ?: poi.story.shortest
         val sentences = ArrayList<String>()
         if (poiKm.getValue(poi.id) - progressKm > config.storyLeadKm) sentences.add("조금 있으면 지나갈 ${poi.name} 이야기예요.")
         sentences.addAll(Speech.sentences(variant.text))
@@ -506,15 +651,18 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         return if (windowSeconds >= enough) shortest else null
     }
 
-    /** Real seconds from now until the host next has something else it must say. */
-    private fun storyWindowSeconds(current: Poi): Double {
+    /**
+     * Real seconds from now until the host next has something else it must say: a story other
+     * than [except], the accepted waypoint, a stop suggestion, or arrival.
+     */
+    private fun windowSeconds(except: Poi?): Double {
         val limits = ArrayList<Double>()
         limits.add(geometry.lengthKm)
         for (poi in poisInOrder) {
-            if (poi.id == current.id || poi.id in told || poi.id in passed) continue
+            if (poi.id == except?.id || poi.id in told || poi.id in passed) continue
             limits.add(poiKm.getValue(poi.id) - config.storyLeadKm)
         }
-        acceptedStop?.let { limits.add(stopKm.getValue(it.id)) }
+        accepted?.let { limits.add(it.routeKm) }
         nextSuggestionKm()?.let { limits.add(it) }
         val limitKm = limits.filter { it > progressKm }.minOrNull() ?: progressKm
         return realSecondsUntil(limitKm)
@@ -522,7 +670,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
 
     /** Where along the route the next rest suggestion would be made, if one is coming. */
     private fun nextSuggestionKm(): Double? {
-        if (acceptedStop != null) return null
+        if (accepted != null) return null
         val minutesUntilDue = max(0.0, lastRestTripMinutes + config.restAfterMinutes - tripMinutes)
         val kmWhenDue = progressKm + kmPerTripMinute() * minutesUntilDue
         val stop = stopsInOrder.firstOrNull {
@@ -556,6 +704,150 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         return aheadKm / pace / 1000.0
     }
 
+    /** Does what a passenger asked for, now that nothing more important is due. */
+    private fun serveRequest(out: MutableList<Action>) {
+        val request = pendingRequest ?: return
+        pendingRequest = null
+        when (request) {
+            is Request.Spots -> recommend(request.category, request.area, out)
+            Request.Riddles -> startRiddles(out)
+            Request.WordChain -> startWordGame(out)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Somewhere to eat or to see
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Reads out up to three spots of [category], numbered, and waits for the passengers to pick
+     * one: a pick becomes a waypoint, while a refusal or silence lets the matter drop. [area] is
+     * the part of the trip they asked about, or null to let the [SpotPicker] decide.
+     */
+    private fun recommend(category: SpotCategory, area: SpotArea?, out: MutableList<Action>) {
+        // Only a rest stop has spots of its own; a spot chosen earlier has none.
+        val stopId = accepted?.waypoint?.id?.takeIf { it in stopKm }
+        val spots = spotPicker.pick(category, area, progressKm, stopId, ORDINALS.size)
+        if (spots.isEmpty()) {
+            notice("아쉽지만 추천할 ${Korean.iGa(category.noun())} 없어요.", out)
+            return
+        }
+        recommended.addAll(spots.map { it.id })
+
+        val sentences = ArrayList<String>()
+        val question: String
+        if (spots.size == 1) {
+            val spot = spots.single()
+            sentences.add("${Korean.iGa(category.place())} 한 군데 있어요.")
+            sentences.addAll(Speech.sentences("${Korean.eunNeun(spot.name)} ${spot.reason}"))
+            question = "들를까요?"
+        } else {
+            sentences.add("${Korean.eulReul(category.place())} ${COUNTS[spots.size - 1]} 군데 골라 봤어요.")
+            spots.forEachIndexed { i, spot ->
+                sentences.add("${ORDINALS[i]}, ${spot.name}.")
+                sentences.addAll(Speech.sentences(spot.reason))
+            }
+            question = "가고 싶은 곳이 있으면 번호나 이름을 말해 주세요."
+        }
+        sentences.add(question)
+
+        val title = "${category.noun()} 추천"
+        start(Segment(SegmentKind.RECOMMENDATION, title, spots.first().area, sentences, spots) { done ->
+            listening = Listening.Choice(spots, title, question, nowMs + config.choiceTimeoutMs)
+            done.add(Action.Listen(ListenMode.CHOICE, config.choiceTimeoutMs, choiceHints(spots)))
+        }, out)
+    }
+
+    /** What a recogniser may hear after a recommendation: the names, and the numbers or yes and no. */
+    private fun choiceHints(spots: List<Spot>): List<String> =
+        spots.map { it.name } + if (spots.size == 1) YES_NO_WORDS else ORDINALS.take(spots.size)
+
+    /**
+     * The reply to a recommendation: a spot by number or by name, or a refusal. Anything else is
+     * waited past, as for a yes/no question. A choice is looked for first, so "첫 번째 말고 두 번째"
+     * is the second spot rather than a "no".
+     */
+    private fun onChoice(waiting: Listening.Choice, text: String, out: MutableList<Action>) {
+        val chosen = Understanding.choiceOf(text, waiting.spots.map { it.name })
+        val answer = Understanding.yesNoOf(text)
+        when {
+            chosen != null -> choose(waiting.spots[chosen], out)
+            // A single spot was asked about with "들를까요?", so yes chooses it.
+            waiting.spots.size == 1 && answer == Intent.YES -> choose(waiting.spots.single(), out)
+            answer == Intent.NO -> {
+                cancelListening(out)
+                notice("알겠어요. 필요하면 또 물어봐 주세요.", out)
+            }
+            else -> {
+                val leftMs = waiting.deadlineMs - nowMs
+                if (leftMs > 0) out.add(Action.Listen(ListenMode.CHOICE, leftMs, choiceHints(waiting.spots)))
+            }
+        }
+    }
+
+    private fun choose(spot: Spot, out: MutableList<Action>) {
+        cancelListening(out)
+        addWaypoint(spot.toWaypoint(), out)
+        notice("네, ${Korean.eulReul(spot.name)} 경유지로 추가했어요.", out)
+    }
+
+    /**
+     * Once a trip, with the destination less than [HostConfig.destinationTipMinutes] of driving
+     * away, one sentence about a place there worth a visit. It is the least of what the host has
+     * to say, so it waits until nothing else is due and is left out rather than allowed to delay
+     * anything: it is said only if it fits, with a story's margin, before the next thing due.
+     *
+     * It must also be over while the destination is still [TIP_MIN_MINUTES] away. Arrival cuts off
+     * whatever is playing, and the car may cover the last stretch faster than its pace so far, so
+     * a tip planned to end just before the arrival can still be cut off.
+     */
+    private fun tellDestinationTip(out: MutableList<Action>): Boolean {
+        if (tipGiven || storyRequested || quizRequested || pendingRequest != null || quiz != null || wordGame != null) return false
+        if (poisInOrder.any { storyDue(it) }) return false
+        val kmPerMinute = kmPerTripMinute()
+        if (kmPerMinute <= 0.0) return false
+        val minutesLeft = (geometry.lengthKm - progressKm) / kmPerMinute
+        if (minutesLeft > config.destinationTipMinutes || minutesLeft < TIP_MIN_MINUTES) return false
+        val spot = destinationTipSpot() ?: return false
+        val text = "도착해서 들러 볼 만한 ${Korean.eunNeun(spot.name)} ${spot.reason}"
+        val lastKm = geometry.lengthKm - TIP_MIN_MINUTES * kmPerMinute
+        val window = min(windowSeconds(except = null), realSecondsUntil(lastKm))
+        if (window < Speech.estimateSeconds(text) * config.pacingMargin) return false
+
+        tipGiven = true
+        recommended.add(spot.id)
+        start(Segment(SegmentKind.RECOMMENDATION, spot.name, spot.area, Speech.sentences(text), listOf(spot)) {}, out)
+        return true
+    }
+
+    /**
+     * What the destination tip is about: a spot near the destination to eat at or to see, not
+     * recommended already, the closest to the destination first. A spot at a place with a story is
+     * left out, since the tip would only repeat it.
+     */
+    private fun destinationTipSpot(): Spot? = pkg.spots
+        .filter { it.near == Spot.NEAR_DESTINATION && it.category in TIP_CATEGORIES && it.id !in recommended }
+        .filter { spot -> pkg.pois.none { Geo.distanceKm(it.location, spot.location) <= SAME_PLACE_KM } }
+        .minByOrNull { Geo.distanceKm(it.location, pkg.destination.location) }
+
+    /** "먹거리", for titles and for saying there is nothing to recommend. */
+    private fun SpotCategory.noun() = when (this) {
+        SpotCategory.FOOD -> "먹거리"
+        SpotCategory.SIGHT -> "볼거리"
+        SpotCategory.CAFE -> "카페"
+    }
+
+    /** "먹을 만한 곳", for the first sentence of a recommendation. */
+    private fun SpotCategory.place() = when (this) {
+        SpotCategory.FOOD -> "먹을 만한 곳"
+        SpotCategory.SIGHT -> "구경할 만한 곳"
+        SpotCategory.CAFE -> "커피 마시기 좋은 곳"
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Quiz and riddles
+    // ---------------------------------------------------------------------------------------
+
     private fun quizDue(): Boolean {
         if (quiz != null) return false
         if (quizRequested) return true
@@ -580,7 +872,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             if (requested) notice("아직 낼 문제가 없어요. 이야기를 하나 듣고 나서 해요.", out)
             return false
         }
-        quiz = QuizRound(questions)
+        quiz = QuizRound(questions, SegmentKind.QUIZ, "퀴즈")
         val intro = when {
             isFinal -> "이제 퀴즈 결승이에요!"
             requested -> "좋아요, 퀴즈 시간이에요!"
@@ -588,6 +880,20 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         }
         ask(listOf(intro), out)
         return true
+    }
+
+    /**
+     * Riddles, asked in turn and scored like the quiz. They are only ever asked for: an idle quiz
+     * stays on the places passed.
+     */
+    private fun startRiddles(out: MutableList<Action>) {
+        val riddles = pkg.funQuiz.filter { it.id !in asked }.take(config.riddlesPerRound)
+        if (riddles.isEmpty()) {
+            notice(if (pkg.funQuiz.isEmpty()) "아쉽지만 준비한 수수께끼가 없어요." else "준비한 수수께끼는 모두 냈어요.", out)
+            return
+        }
+        quiz = QuizRound(riddles, SegmentKind.GAME, "수수께끼")
+        ask(listOf("좋아요, 수수께끼 시간이에요!"), out)
     }
 
     private fun ask(intro: List<String>, out: MutableList<Action>) {
@@ -603,9 +909,9 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         if (question.choices.isNotEmpty()) {
             sentences.add(question.choices.mapIndexed { i, choice -> "${i + 1}번 $choice" }.joinToString(", ") + ".")
         }
-        val title = "퀴즈 ${round.index + 1}/${round.questions.size}"
-        start(Segment(SegmentKind.QUIZ, title, "$player 차례", sentences) { done ->
-            listening = Listening.QuizReply(question, player, nowMs + config.answerTimeoutMs)
+        val title = "${round.name} ${round.index + 1}/${round.questions.size}"
+        start(Segment(round.kind, title, "$player 차례", sentences) { done ->
+            listening = Listening.QuizReply(question, player, round.kind, nowMs + config.answerTimeoutMs)
             done.add(Action.Listen(ListenMode.QUIZ_ANSWER, config.answerTimeoutMs, question.answers))
         }, out)
     }
@@ -627,7 +933,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         }
         sentences.addAll(Speech.sentences(waiting.question.explanation))
         val title = if (correct) "정답!" else "정답은 $answer"
-        start(Segment(SegmentKind.QUIZ, title, waiting.player, sentences) { done -> afterAnswer(done) }, out)
+        start(Segment(waiting.kind, title, waiting.player, sentences) { done -> afterAnswer(done) }, out)
     }
 
     private fun afterAnswer(out: MutableList<Action>) {
@@ -639,8 +945,112 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         }
         quiz = null
         val standings = scores.entries.joinToString(", ") { "${it.key} ${it.value}점" }
-        start(Segment(SegmentKind.QUIZ, "퀴즈 끝", "점수", listOf("퀴즈 끝! 지금까지 ${standings}이에요.")) {}, out)
+        start(Segment(round.kind, "${round.name} 끝", "점수", listOf("${round.name} 끝! 지금까지 ${standings}이에요.")) {}, out)
     }
+
+    // ---------------------------------------------------------------------------------------
+    // 끝말잇기
+    // ---------------------------------------------------------------------------------------
+
+    /** 끝말잇기: the host says the first word, then the players, in turn, and the host take turns. */
+    private fun startWordGame(out: MutableList<Action>) {
+        // A seed per game, so that each game opens differently and every game can be replayed.
+        val referee = WordChainGame(words, seed = wordGamesPlayed)
+        val first = referee.hostMove()
+        if (first == null) {
+            // The platform could not read the word list, and the host does not make words up.
+            notice("아쉽지만 끝말잇기는 할 수 없어요. 낱말 목록을 불러오지 못했어요.", out)
+            return
+        }
+        wordGamesPlayed++
+        val game = WordGame(referee)
+        wordGame = game
+        sayWord(game, first, listOf("좋아요, 끝말잇기 해요! 제가 먼저 할게요."), out)
+    }
+
+    /**
+     * Says the host's [word] after [before], then hands the turn to the next player and listens.
+     * Whose turn it is and how the word must start are called out in one breath, as people do.
+     */
+    private fun sayWord(game: WordGame, word: String, before: List<String>, out: MutableList<Action>) {
+        val player = players[game.turns % players.size]
+        game.turns++
+        val syllable = word.last().toString()
+        val sentences = before + listOf("$word!", "$player 차례! ${Korean.ro(syllable)} 시작하는 말!")
+        start(Segment(SegmentKind.GAME, "끝말잇기", "$player 차례", sentences) { done ->
+            listening = Listening.WordTurn(player, syllable, nowMs + config.answerTimeoutMs)
+            done.add(Action.Listen(ListenMode.WORD, config.answerTimeoutMs, game.referee.hints()))
+        }, out)
+    }
+
+    /**
+     * A player's word. One that follows and is new keeps the game going, until the players have
+     * said [HostConfig.wordChainRounds] of them; one that does not follow, or was said before, ends
+     * the game. Something that is not a word at all ("음") is waited past.
+     */
+    private fun onWord(waiting: Listening.WordTurn, text: String, out: MutableList<Action>) {
+        val game = wordGame
+        if (game == null) {
+            cancelListening(out)
+            return
+        }
+        val word = Understanding.wordOf(text)
+        val verdict = game.referee.check(word)
+        if (word == null || verdict == WordChainGame.Verdict.NOT_A_WORD) {
+            val leftMs = waiting.deadlineMs - nowMs
+            if (leftMs > 0) out.add(Action.Listen(ListenMode.WORD, leftMs, game.referee.hints()))
+            return
+        }
+        when (verdict) {
+            WordChainGame.Verdict.VALID -> playWord(game, word, out)
+            // The word is not said back: "몰라" counts as a word too, and that would sound silly.
+            WordChainGame.Verdict.WRONG_START -> hostWinsWordGame("아쉬워요! ${Korean.ro(waiting.syllable)} 시작하는 말이어야 해요.", out)
+            WordChainGame.Verdict.ALREADY_USED -> hostWinsWordGame("아쉬워요! ${Korean.eunNeun(word)} 벌써 나온 말이에요.", out)
+            WordChainGame.Verdict.NOT_A_WORD -> {} // Waited past, above.
+        }
+    }
+
+    private fun playWord(game: WordGame, word: String, out: MutableList<Action>) {
+        cancelListening(out)
+        game.referee.play(word)
+        game.playerWords++
+        if (game.playerWords >= config.wordChainRounds) {
+            endWordGame(listOf("와, 끝말잇기 정말 잘하네요! 오늘은 여기까지 할게요."), out)
+            return
+        }
+        val reply = game.referee.hostMove()
+        if (reply == null) endWordGame(listOf("제가 졌어요! 여러분이 이겼어요."), out) else sayWord(game, reply, emptyList(), out)
+    }
+
+    /**
+     * The player could not go on, for the reason [why]: the host wins this game, and says a word
+     * that would have done.
+     */
+    private fun hostWinsWordGame(why: String, out: MutableList<Action>) {
+        cancelListening(out)
+        val game = wordGame ?: return
+        val sentences = arrayListOf(why)
+        game.referee.hints(1).firstOrNull()?.let { sentences.add("예를 들면 $it 같은 말이 있어요.") }
+        sentences.add("이번 판은 제가 이겼어요. 다음에 또 해요!")
+        endWordGame(sentences, out)
+    }
+
+    private fun endWordGame(sentences: List<String>, out: MutableList<Action>) {
+        wordGame = null
+        start(Segment(SegmentKind.GAME, "끝말잇기", "끝", sentences) {}, out)
+    }
+
+    /** "그만" during 끝말잇기: the game stops, and the host carries on as before rather than going quiet. */
+    private fun stopWordGame(out: MutableList<Action>) {
+        abandonSegment(out)
+        cancelListening(out)
+        wordGame = null
+        notice("네, 끝말잇기는 여기까지 할게요.", out)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // At a stop, and at the end
+    // ---------------------------------------------------------------------------------------
 
     /**
      * At a stop the host offers the next story instead of just starting it: people often leave the
@@ -751,19 +1161,22 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
         out.add(Action.CancelListen)
     }
 
-    /** The skip button, or "건너뛰어": drop whatever is being said or asked. */
+    /** The skip button, or "건너뛰어": drop whatever is being said or asked, and any game. */
     private fun skip(out: MutableList<Action>) {
         abandonSegment(out)
         cancelListening(out)
         quiz = null
+        wordGame = null
     }
 
     private fun goQuiet(out: MutableList<Action>) {
         abandonSegment(out)
         cancelListening(out)
         quiz = null
+        wordGame = null
         quizRequested = false
         storyRequested = false
+        pendingRequest = null
         quiet = true
         notice("네, 다음 정차까지 조용히 있을게요.", out)
     }
@@ -775,17 +1188,30 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
     fun snapshot(): HostSnapshot {
         val current = segment
         val waiting = listening
-        val card = when {
-            current != null -> Card(
+        val card = if (current != null) {
+            Card(
                 kind = current.kind,
                 title = current.title,
                 subtitle = current.subtitle,
                 caption = current.sentences[current.index.coerceAtMost(current.sentences.size - 1)],
                 progress = (current.index + 1).toFloat() / current.sentences.size
             )
-            waiting is Listening.QuizReply -> Card(SegmentKind.QUIZ, "듣고 있어요", "${waiting.player} 차례", waiting.question.prompt, 1f)
-            waiting is Listening.YesNo -> Card(waiting.kind, "듣고 있어요", waiting.title, waiting.question, 1f)
-            else -> null
+        } else {
+            // Every kind of question has its own card, so the screen never shows the idle card
+            // while the host is waiting for an answer.
+            when (waiting) {
+                is Listening.YesNo -> Card(waiting.kind, "듣고 있어요", waiting.title, waiting.question, 1f)
+                is Listening.QuizReply -> Card(waiting.kind, "듣고 있어요", "${waiting.player} 차례", waiting.question.prompt, 1f)
+                is Listening.Choice -> Card(SegmentKind.RECOMMENDATION, "듣고 있어요", waiting.title, waiting.question, 1f)
+                is Listening.WordTurn ->
+                    Card(SegmentKind.GAME, "듣고 있어요", "${waiting.player} 차례", "${Korean.ro(waiting.syllable)} 시작하는 말", 1f)
+                null -> null
+            }
+        }
+        val offers = when {
+            current != null -> current.offers
+            waiting is Listening.Choice -> waiting.spots
+            else -> emptyList()
         }
         return HostSnapshot(
             phase = phase,
@@ -801,7 +1227,7 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
             batteryPercent = batteryPercent,
             charging = charging,
             parked = parked,
-            waypointName = acceptedStop?.name,
+            waypointName = accepted?.waypoint?.name,
             upNext = upNext(),
             scores = scores.map { PlayerScore(it.key, it.value) },
             places = poisInOrder.map { poi ->
@@ -811,7 +1237,8 @@ class HostEngine(private val pkg: RoutePackage, private val config: HostConfig =
                     else -> PlaceState.AHEAD
                 }
                 PlaceStatus(poi.id, poi.name, poiKm.getValue(poi.id), state)
-            }
+            },
+            offers = offers
         )
     }
 

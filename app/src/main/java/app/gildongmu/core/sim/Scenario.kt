@@ -33,9 +33,12 @@ data class ScenarioStop(val stopId: String, val seconds: Double, val chargeToPer
 
 /**
  * Scripted passenger replies, so the demo can run hands-free. [yesNo] answers the host's yes/no
- * questions; [quiz] entries are "correct", "wrong", or the literal words to say.
+ * questions; [quiz] entries are "correct", "wrong", or the literal words to say. [choice] is what
+ * to say when the host asks which recommended spot to go to; without it nobody answers, so no spot
+ * is added and the drive keeps to its script. In 끝말잇기 the scripted player always says the first
+ * of the host's hints.
  */
-data class AutoReplies(val delayMs: Long, val yesNo: String?, val quiz: List<String>)
+data class AutoReplies(val delayMs: Long, val yesNo: String?, val quiz: List<String>, val choice: String?)
 
 /**
  * A scripted drive along a route package: how fast time runs, how fast the car goes, and what
@@ -86,7 +89,8 @@ object ScenarioParser {
                     AutoReplies(
                         delayMs = (it.optDouble("delayMs") ?: 1500.0).toLong(),
                         yesNo = it.optString("yesNo"),
-                        quiz = it.strings("quiz")
+                        quiz = it.strings("quiz"),
+                        choice = it.optString("choice")
                     )
                 }
             )

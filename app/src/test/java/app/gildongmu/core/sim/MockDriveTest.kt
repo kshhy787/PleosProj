@@ -3,8 +3,11 @@ package app.gildongmu.core.sim
 import app.gildongmu.core.Fixtures
 import app.gildongmu.core.ListenMode
 import app.gildongmu.core.Signal
+import app.gildongmu.core.Spot
+import app.gildongmu.core.toWaypoint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -86,7 +89,7 @@ class MockDriveTest {
     fun stopsAndChargesAtAnAcceptedWaypointThenDrivesOn() {
         val drive = MockDrive(pkg, scenario())
         run(drive, seconds = 5)
-        drive.onWaypointAdded(pkg.stops.first { it.id == "s1" })
+        drive.onWaypointAdded(pkg.stops.first { it.id == "s1" }.toWaypoint())
         val signals = run(drive, seconds = 60) { drive.progressKm > 31.0 }
 
         val parked = signals.filterIsInstance<Signal.Parked>().map { it.parked }
@@ -100,10 +103,52 @@ class MockDriveTest {
     @Test
     fun timeParkedIsNotDrivingTime() {
         val drive = MockDrive(pkg, scenario())
-        drive.onWaypointAdded(pkg.stops.first { it.id == "s1" })
+        drive.onWaypointAdded(pkg.stops.first { it.id == "s1" }.toWaypoint())
         run(drive, seconds = 45) { drive.progressKm > 30.5 }
         // 30 km at 60 km/h is 30 minutes of driving, however long the stop took.
         assertEquals(30.5, drive.tripMinutes, 0.6)
+    }
+
+    @Test
+    fun stopsForHalfAMinuteAtAChosenSpotWithoutCharging() {
+        val drive = MockDrive(pkg, scenario())
+        // A restaurant a kilometre off the road. The scripted car stays on the route, so it stops
+        // where the road passes closest.
+        drive.onWaypointAdded(Fixtures.spot("f1", "국밥집", 40.0, eastKm = 1.0).toWaypoint())
+        assertEquals("f1", drive.waypoint?.id)
+
+        val signals = ArrayList(run(drive, seconds = 50))
+        assertTrue("Parked by the spot", drive.parked)
+        assertEquals(40.0, drive.progressKm, 0.05)
+        signals.addAll(run(drive, seconds = 30))
+        assertFalse("On the road again half a minute later", drive.parked)
+        assertNull(drive.waypoint)
+
+        assertEquals(listOf(false, true, false), signals.filterIsInstance<Signal.Parked>().map { it.parked })
+        assertTrue("A spot has no charger", signals.filterIsInstance<Signal.Battery>().none { it.charging })
+    }
+
+    @Test
+    fun parksOnlyAtAWaypointAheadAndAtLeastTwoKilometresBeforeTheEnd() {
+        val drive = MockDrive(pkg, scenario())
+        run(drive, seconds = 20)
+        drive.onWaypointAdded(Fixtures.spot("behind", "지나온 식당", 10.0).toWaypoint())
+        assertNull("Behind the car", drive.waypoint)
+        // A spot by the destination meets the route on its last stretch.
+        drive.onWaypointAdded(Fixtures.spot("sea", "바닷가 식당", 98.5, near = Spot.NEAR_DESTINATION, eastKm = 3.0).toWaypoint())
+        assertNull("Less than two kilometres before the end", drive.waypoint)
+        drive.onWaypointAdded(Fixtures.spot("market", "시장", 97.5).toWaypoint())
+        assertEquals("Two and a half kilometres before the end", "market", drive.waypoint?.id)
+    }
+
+    @Test
+    fun aSpotByTheDestinationIsDrivenPastSoTheDriveEndsWithTheArrival() {
+        val drive = MockDrive(pkg, scenario())
+        drive.onWaypointAdded(Fixtures.spot("sea", "바닷가 식당", 99.0, near = Spot.NEAR_DESTINATION, eastKm = 2.0).toWaypoint())
+        val signals = run(drive, seconds = 200)
+        assertTrue(drive.arrived)
+        assertEquals("No rest before the arrival", listOf(false, true), signals.filterIsInstance<Signal.Parked>().map { it.parked })
+        assertEquals(listOf(Signal.DestinationArrived, Signal.Parked(true)), signals.takeLast(2))
     }
 
     @Test
@@ -139,6 +184,36 @@ class MockDriveTest {
 
         drive.autoRepliesEnabled = false
         drive.onListen(ListenMode.YES_NO, listOf("응", "아니"))
+        assertTrue(drive.advance(2000).none { it is Signal.Utterance })
+    }
+
+    @Test
+    fun choicesAndWordsHaveTheirOwnScriptedRepliesAndLeaveTheQuizScriptAlone() {
+        val replies = """, "autoReplies": { "delayMs": 1000, "yesNo": "응", "quiz": ["wrong"], "choice": "두 번째" }"""
+        val drive = MockDrive(pkg, scenario(replies))
+        drive.start()
+
+        drive.onListen(ListenMode.CHOICE, listOf("국밥집", "냉면집"))
+        assertEquals("두 번째", drive.advance(1100).filterIsInstance<Signal.Utterance>().single().text)
+        drive.onListen(ListenMode.WORD, listOf("고래", "고구마"))
+        assertEquals("The first of the host's hints", "고래", drive.advance(1100).filterIsInstance<Signal.Utterance>().single().text)
+
+        drive.onListen(ListenMode.QUIZ_ANSWER, listOf("바다"))
+        val answer = drive.advance(1100).filterIsInstance<Signal.Utterance>().single().text
+        assertEquals("The quiz script still starts at its first entry", "잘 모르겠어요", answer)
+    }
+
+    @Test
+    fun withoutAScriptedChoiceAnOfferForSpotsGoesUnanswered() {
+        // The bundled demo has no "choice", so no spot is ever added and the drive keeps to its script.
+        val replies = """, "autoReplies": { "delayMs": 1000, "yesNo": "응", "quiz": [] }"""
+        val drive = MockDrive(pkg, scenario(replies))
+        drive.start()
+        drive.onListen(ListenMode.CHOICE, listOf("국밥집", "냉면집"))
+        assertTrue(drive.advance(2000).none { it is Signal.Utterance })
+
+        // A word turn with no hint to play is not answered either.
+        drive.onListen(ListenMode.WORD, emptyList())
         assertTrue(drive.advance(2000).none { it is Signal.Utterance })
     }
 

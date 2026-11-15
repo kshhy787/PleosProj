@@ -14,7 +14,8 @@ import app.gildongmu.core.ListenMode
 import app.gildongmu.core.ParkedDetector
 import app.gildongmu.core.RoutePackageParser
 import app.gildongmu.core.Signal
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
+import app.gildongmu.core.WordList
 import app.gildongmu.core.sim.DemoSession
 import app.gildongmu.core.sim.ScenarioParser
 import app.gildongmu.host.AppPlatform
@@ -94,9 +95,9 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
             if (demo == null) listener?.cancel()
         }
 
-        override fun addWaypoint(stop: Stop) {
+        override fun addWaypoint(waypoint: Waypoint) {
             // The scripted car has no real route to add a stop to.
-            if (demo == null) navigation?.addWaypoint(stop)
+            if (demo == null) navigation?.addWaypoint(waypoint)
         }
 
         override fun light(cue: LightCue) {
@@ -156,7 +157,7 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
             Log.e(TAG, "Could not load the route package", e)
             return
         }
-        runtime = HostRuntime(HostEngine(route), device) { SystemClock.uptimeMillis() }
+        runtime = HostRuntime(HostEngine(route, words = loadWords()), device) { SystemClock.uptimeMillis() }
 
         // If the car's voice is not working, what it would have said goes on the screen instead.
         val onVoiceStatus = { problem: String? -> if (problem != null) screen.captions = true }
@@ -184,7 +185,8 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
             DemoSession(
                 RoutePackageParser.parse(asset(ROUTE)),
                 ScenarioParser.parse(asset(SCENARIO)),
-                device
+                device,
+                loadWords()
             ) { SystemClock.uptimeMillis() }
         } catch (e: Exception) {
             Log.e(TAG, "Could not start the demo drive", e)
@@ -218,6 +220,17 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         null
     }
 
+    /**
+     * The host's 끝말잇기 words. A missing or broken list must not stop the app: it is logged, and
+     * the host gets no words, so it says it cannot play.
+     */
+    private fun loadWords(): List<String> = try {
+        WordList.parse(asset(WORDS))
+    } catch (e: Exception) {
+        Log.e(TAG, "Could not load the word list", e)
+        emptyList()
+    }
+
     private fun asset(path: String): String =
         activity.assets.open(path).bufferedReader().use { it.readText() }
 
@@ -236,6 +249,7 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         const val TAG = "Gildongmu"
         const val ROUTE = "routes/seoul-gangneung.json"
         const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
+        const val WORDS = "games/word-chain.txt"
         const val DEMO_TICK_MS = 100L
     }
 }

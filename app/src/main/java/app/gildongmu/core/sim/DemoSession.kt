@@ -7,19 +7,21 @@ import app.gildongmu.core.HostRuntime
 import app.gildongmu.core.ListenMode
 import app.gildongmu.core.RoutePackage
 import app.gildongmu.core.Signal
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
 
 /**
  * A complete demo: the host, a scripted car, and whatever does the talking and listening.
  *
  * [device] supplies speech, listening and the screen. The session sits between the host and the
  * device so that the scripted car hears about the things a real car would act on: a waypoint being
- * added, and the host starting or stopping to listen.
+ * added, and the host starting or stopping to listen. [words] are the host's 끝말잇기 words, as
+ * for [HostEngine].
  */
 class DemoSession(
     pkg: RoutePackage,
     scenario: Scenario,
     device: HostPlatform,
+    words: List<String> = emptyList(),
     clock: () -> Long
 ) {
     init {
@@ -52,13 +54,14 @@ class DemoSession(
                 players = scenario.players.ifEmpty { defaults.players },
                 quizQuestionsPerRound = scenario.quizQuestionsPerRound ?: defaults.quizQuestionsPerRound
             )
-        }
+        },
+        words
     )
 
     private val platform = object : HostPlatform by device {
-        override fun addWaypoint(stop: Stop) {
-            drive.onWaypointAdded(stop)
-            device.addWaypoint(stop)
+        override fun addWaypoint(waypoint: Waypoint) {
+            drive.onWaypointAdded(waypoint)
+            device.addWaypoint(waypoint)
         }
 
         override fun listen(mode: ListenMode, timeoutMs: Long, expected: List<String>) {

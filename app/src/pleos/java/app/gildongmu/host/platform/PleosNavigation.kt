@@ -9,7 +9,7 @@ import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
 import android.util.Log
 import app.gildongmu.core.Signal
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
 
 /**
  * Navigation through the Pleos NaviHelper SDK (ai.pleos.playground:NaviHelper).
@@ -58,15 +58,15 @@ class PleosNavigation(context: Context, private val emit: (Signal) -> Unit) {
         )
     }
 
-    /** Adds [stop] as the first waypoint of the current route. */
-    fun addWaypoint(stop: Stop) {
+    /** Adds [waypoint], a rest stop or a chosen spot, as the first waypoint of the current route. */
+    fun addWaypoint(waypoint: Waypoint) {
         if (!connected) return
         navi.addWaypoint(
             RequestWaypointInfo(
-                latitude = stop.location.lat,
-                longitude = stop.location.lon,
+                latitude = waypoint.location.lat,
+                longitude = waypoint.location.lon,
                 waypointIndex = WaypointIndex.FIRST,
-                poiName = stop.name
+                poiName = waypoint.name
             )
         )
     }

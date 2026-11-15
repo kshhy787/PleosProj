@@ -101,6 +101,19 @@ data class Spot(
 }
 
 /**
+ * Somewhere the host asks navigation to add to the route: a rest stop it suggested, or a spot a
+ * passenger chose. Navigation needs only the name and the position; [hasCharger] tells the
+ * scripted car whether it can charge there.
+ */
+data class Waypoint(val id: String, val name: String, val location: GeoPoint, val hasCharger: Boolean = false)
+
+/** A rest stop keeps its charger, so that the scripted car knows it can charge there. */
+fun Stop.toWaypoint() = Waypoint(id, name, location, hasCharger)
+
+/** A spot has no charger as far as the host knows: route packages do not say. */
+fun Spot.toWaypoint() = Waypoint(id, name, location)
+
+/**
  * Everything the host needs for one route, prepared before departure.
  *
  * Nothing in here is generated while driving: the content pipeline builds a package when the route

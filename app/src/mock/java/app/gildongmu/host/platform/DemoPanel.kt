@@ -27,6 +27,9 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
         fun onSay(text: String)
     }
 
+    /** An answer button: what it shows, and what pressing it says to the host. */
+    private class Answer(val label: String, val text: String)
+
     val root: View
 
     private val startButton: TextView
@@ -40,10 +43,14 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
     private val passenger = Ui.text(context, 20f, Palette.WARM, bold = true)
     private val diagnostics = Ui.text(context, 13f, Palette.TEXT_SECONDARY)
     private val answerRow: LinearLayout = Ui.row(context)
+    private val firstAnswer: TextView
+    private val secondAnswer: TextView
 
     private var autoReplies = true
     private var captions = true
-    private var expectedAnswer: String? = null
+
+    /** Up to two answer buttons, for the question the host is waiting on; empty hides them. */
+    private var answers: List<Answer> = emptyList()
 
     init {
         val column = Ui.column(context)
@@ -75,10 +82,13 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
         }
         column.addView(autoButton, spaced())
         column.addView(sayRow("퀴즈 하자", "이야기해 줘"), spaced())
+        column.addView(sayRow("뭐 먹지", "수수께끼", "끝말잇기"), spaced())
         column.addView(sayRow("응", "아니"), spaced())
         column.addView(sayRow("조용히", "건너뛰어"), spaced())
-        answerRow.addView(small("정답 말하기") { expectedAnswer?.let(actions::onSay) }, Ui.params(0, Ui.WRAP, 1f))
-        answerRow.addView(small("오답 말하기") { actions.onSay("잘 모르겠어요") }, Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 10)))
+        firstAnswer = small("") { answers.getOrNull(0)?.let { actions.onSay(it.text) } }
+        secondAnswer = small("") { answers.getOrNull(1)?.let { actions.onSay(it.text) } }
+        answerRow.addView(firstAnswer, Ui.params(0, Ui.WRAP, 1f))
+        answerRow.addView(secondAnswer, Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 10)))
         column.addView(answerRow, spaced())
         Ui.show(answerRow, false)
 
@@ -136,10 +146,24 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
         }
     }
 
-    /** The host started or stopped listening; offer the matching answer buttons. */
+    /**
+     * The host started or stopped listening; offer answer buttons that fit the question. Yes and
+     * no have their own buttons above, which are always there.
+     */
     fun setListening(mode: ListenMode?, expected: List<String>) {
-        expectedAnswer = if (mode == ListenMode.QUIZ_ANSWER) expected.firstOrNull() else null
-        Ui.show(answerRow, expectedAnswer != null)
+        val first = expected.firstOrNull()
+        answers = when (mode) {
+            ListenMode.QUIZ_ANSWER ->
+                if (first == null) emptyList() else listOf(Answer("정답 말하기", first), Answer("오답 말하기", "잘 모르겠어요"))
+            ListenMode.CHOICE -> listOf(Answer("첫 번째", "첫 번째"), Answer("괜찮아", "괜찮아"))
+            // The first of the host's hints, a word it is sure to accept. To lose, say nothing.
+            ListenMode.WORD -> listOfNotNull(first?.let { Answer(it, it) })
+            ListenMode.YES_NO, null -> emptyList()
+        }
+        firstAnswer.text = answers.getOrNull(0)?.label.orEmpty()
+        secondAnswer.text = answers.getOrNull(1)?.label.orEmpty()
+        Ui.show(secondAnswer, answers.size > 1)
+        Ui.show(answerRow, answers.isNotEmpty())
     }
 
     /**
@@ -187,10 +211,13 @@ class DemoPanel(private val context: Context, private val actions: Actions) {
     private fun small(label: String, filled: Boolean = false, onClick: () -> Unit): TextView =
         Ui.button(context, label, sizeSp = 18f, filled = filled, minHeightDp = 52, onClick = onClick)
 
-    private fun sayRow(first: String, second: String): View {
+    /** Buttons side by side, each saying its own label to the host. */
+    private fun sayRow(vararg labels: String): View {
         val row = Ui.row(context)
-        row.addView(small(first) { actions.onSay(first) }, Ui.params(0, Ui.WRAP, 1f))
-        row.addView(small(second) { actions.onSay(second) }, Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 10)))
+        labels.forEachIndexed { i, label ->
+            val params = Ui.params(0, Ui.WRAP, 1f)
+            row.addView(small(label) { actions.onSay(label) }, if (i == 0) params else Ui.margins(params, left = Ui.dp(context, 10)))
+        }
         return row
     }
 

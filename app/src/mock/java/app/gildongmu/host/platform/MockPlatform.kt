@@ -14,7 +14,8 @@ import app.gildongmu.core.LightCue
 import app.gildongmu.core.ListenMode
 import app.gildongmu.core.RoutePackageParser
 import app.gildongmu.core.Signal
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
+import app.gildongmu.core.WordList
 import app.gildongmu.core.sim.DemoSession
 import app.gildongmu.core.sim.ScenarioParser
 import app.gildongmu.host.AppPlatform
@@ -108,7 +109,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
             listener?.cancel()
         }
 
-        override fun addWaypoint(stop: Stop) {
+        override fun addWaypoint(waypoint: Waypoint) {
             // The scripted car picks this up through the session; the panel shows it as navigation would.
         }
 
@@ -158,7 +159,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         try {
             val route = RoutePackageParser.parse(asset(ROUTE))
             val scenario = ScenarioParser.parse(asset(SCENARIO))
-            val created = DemoSession(route, scenario, device) { SystemClock.uptimeMillis() }
+            val created = DemoSession(route, scenario, device, loadWords()) { SystemClock.uptimeMillis() }
             created.onPassengerSpeech = { text -> panel.showPassenger(text) }
             session = created
             created.dispatch(Signal.Tick) // draws the first frame
@@ -253,6 +254,17 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         session?.dispatch(Signal.Utterance(text))
     }
 
+    /**
+     * The host's 끝말잇기 words. A missing or broken list must not stop the demo: it is logged, and
+     * the host gets no words, so it says it cannot play.
+     */
+    private fun loadWords(): List<String> = try {
+        WordList.parse(asset(WORDS))
+    } catch (e: Exception) {
+        Log.e(TAG, "Could not load the word list", e)
+        emptyList()
+    }
+
     private fun asset(path: String): String =
         activity.assets.open(path).bufferedReader().use { it.readText() }
 
@@ -260,13 +272,14 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         const val TAG = "Gildongmu"
         const val ROUTE = "routes/seoul-gangneung.json"
         const val SCENARIO = "scenarios/seoul-gangneung-demo.json"
+        const val WORDS = "games/word-chain.txt"
         const val TICK_MS = 100L
 
         /**
          * Shown in the diagnostics, to tell from a screenshot which version of the code is running.
          * Change it whenever the app's behaviour changes; add " · 2" and so on for a second build on one day.
          */
-        const val BUILD_NOTE = "2026-11-14 · 2"
+        const val BUILD_NOTE = "2026-11-15"
         const val MICROPHONE_REQUEST = 1
     }
 }

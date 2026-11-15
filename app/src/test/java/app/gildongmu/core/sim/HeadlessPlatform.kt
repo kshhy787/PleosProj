@@ -6,7 +6,7 @@ import app.gildongmu.core.LightCue
 import app.gildongmu.core.ListenMode
 import app.gildongmu.core.Signal
 import app.gildongmu.core.Speech
-import app.gildongmu.core.Stop
+import app.gildongmu.core.Waypoint
 
 /**
  * A [HostPlatform] with no car and no audio: it "speaks" by waiting as long as the sentence would
@@ -21,7 +21,7 @@ class HeadlessPlatform(private val slowdown: Double = 1.0, private val clock: ()
     data class Line(val atMs: Long, val kind: String, val text: String)
 
     val log = ArrayList<Line>()
-    val waypoints = ArrayList<Stop>()
+    val waypoints = ArrayList<Waypoint>()
     val lights = ArrayList<LightCue>()
     var expandedUi = false
         private set
@@ -53,9 +53,9 @@ class HeadlessPlatform(private val slowdown: Double = 1.0, private val clock: ()
 
     override fun cancelListen() {}
 
-    override fun addWaypoint(stop: Stop) {
-        waypoints.add(stop)
-        log.add(Line(clock(), "NAV", "경유지 추가: ${stop.name}"))
+    override fun addWaypoint(waypoint: Waypoint) {
+        waypoints.add(waypoint)
+        log.add(Line(clock(), "NAV", "경유지 추가: ${waypoint.name}"))
     }
 
     override fun light(cue: LightCue) {

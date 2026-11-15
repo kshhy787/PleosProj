@@ -37,9 +37,28 @@ data class HostConfig(
     /** Offer a quiz after this much silence (real seconds), if there is something to ask. */
     val quizIdleSeconds: Int = 180,
     val quizQuestionsPerRound: Int = 3,
+    val riddlesPerRound: Int = 3,
+
+    /**
+     * A game of 끝말잇기 ends, with praise for the players, after this many of their words, so that
+     * it does not take over the trip.
+     */
+    val wordChainRounds: Int = 4,
+
+    /**
+     * Once the destination is this many minutes of driving away, the host may mention one place
+     * there worth stopping at.
+     */
+    val destinationTipMinutes: Int = 20,
 
     val answerTimeoutMs: Long = 10_000,
     val yesNoTimeoutMs: Long = 8_000,
+
+    /**
+     * How long to wait for the passengers to pick one of the spots just recommended. Longer than
+     * a quiz answer, because a family tends to talk it over first.
+     */
+    val choiceTimeoutMs: Long = 12_000,
 
     /** Hold speech when the next navigation instruction is this close. */
     val turnHoldDistanceM: Int = 500,

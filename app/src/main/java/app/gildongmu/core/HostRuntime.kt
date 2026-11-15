@@ -17,7 +17,8 @@ interface HostPlatform {
 
     fun cancelListen()
 
-    fun addWaypoint(stop: Stop)
+    /** Add [waypoint] to the route being guided: a rest stop or a spot the passengers chose. */
+    fun addWaypoint(waypoint: Waypoint)
 
     fun light(cue: LightCue)
 
@@ -69,7 +70,7 @@ class HostRuntime(
             Action.StopSpeaking -> platform.stopSpeaking()
             is Action.Listen -> platform.listen(action.mode, action.timeoutMs, action.expected)
             Action.CancelListen -> platform.cancelListen()
-            is Action.AddWaypoint -> platform.addWaypoint(action.stop)
+            is Action.AddWaypoint -> platform.addWaypoint(action.waypoint)
             is Action.Light -> platform.light(action.cue)
             is Action.ExpandedUi -> platform.setExpandedUi(action.enabled)
         }

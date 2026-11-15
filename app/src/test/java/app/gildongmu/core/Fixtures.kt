@@ -1,5 +1,7 @@
 package app.gildongmu.core
 
+import kotlin.math.cos
+
 /**
  * A made-up 100 km route running due north, so that "kilometres along the route" in a test is
  * exactly what it says: places at 20, 50 and 80 km, rest areas at 30, 60 and 90 km.
@@ -17,6 +19,35 @@ object Fixtures {
     private fun question(id: String, prompt: String, vararg answers: String) =
         QuizQuestion(id, prompt, answers.toList(), "설명 $id.")
 
+    /** A riddle for a route's funQuiz, or with [kind] a nonsense question. */
+    fun riddle(id: String, prompt: String, vararg answers: String, kind: QuizKind = QuizKind.RIDDLE) =
+        QuizQuestion(id, prompt, answers.toList(), "설명 $id.", kind = kind)
+
+    /**
+     * A spot [km] along the road and [eastKm] off to the side of it. Its reason, "<name> 이유예요.",
+     * tells in a test which spot the host is talking about.
+     */
+    fun spot(
+        id: String,
+        name: String,
+        km: Double,
+        category: SpotCategory = SpotCategory.FOOD,
+        near: String? = null,
+        eastKm: Double = 0.0
+    ): Spot {
+        val road = at(km)
+        return Spot(
+            id = id,
+            category = category,
+            name = name,
+            area = "",
+            location = GeoPoint(road.lat, road.lon + eastKm * degreesPerKm / cos(Math.toRadians(road.lat))),
+            reason = "$name 이유예요.",
+            near = near,
+            sources = emptyList()
+        )
+    }
+
     private fun poi(id: String, name: String, km: Double, vararg quiz: QuizQuestion) = Poi(
         id = id,
         name = name,
@@ -33,7 +64,12 @@ object Fixtures {
         sources = emptyList()
     )
 
-    fun route(generalQuiz: List<QuizQuestion> = emptyList()) = RoutePackage(
+    /** The road with its places and rest areas. Spots and fun questions are added only when given. */
+    fun route(
+        generalQuiz: List<QuizQuestion> = emptyList(),
+        spots: List<Spot> = emptyList(),
+        funQuiz: List<QuizQuestion> = emptyList()
+    ) = RoutePackage(
         id = "test",
         title = "시험 경로",
         origin = Place("출발지", at(0.0)),
@@ -50,17 +86,24 @@ object Fixtures {
             Stop("s3", "세모휴게소", at(90.0), hasCharger = true)
         ),
         generalQuiz = generalQuiz,
-        geometryNote = null
+        geometryNote = null,
+        spots = spots,
+        funQuiz = funQuiz
     )
 }
 
 /**
  * Drives a [HostEngine] by hand: moves the car, advances the clock, and plays the part of the
- * speech engine by reporting each sentence as finished when the test asks for it.
+ * speech engine by reporting each sentence as finished when the test asks for it. [words] are the
+ * host's 끝말잇기 words: a few of the test's own, never the bundled list.
  */
-class Harness(pkg: RoutePackage = Fixtures.route(), config: HostConfig = HostConfig()) {
+class Harness(
+    pkg: RoutePackage = Fixtures.route(),
+    config: HostConfig = HostConfig(),
+    words: List<String> = emptyList()
+) {
 
-    val engine = HostEngine(pkg, config)
+    val engine = HostEngine(pkg, config, words)
     var now = 0L
     private var km = 0.0
 
