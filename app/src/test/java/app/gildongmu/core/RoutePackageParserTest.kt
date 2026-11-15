@@ -126,11 +126,45 @@ class RoutePackageParserTest {
         assertTrue(nearDestination.any { it.category == SpotCategory.CAFE })
         assertTrue("Some spots belong to rest stops along the way", pkg.spots.any { it.near in pkg.stops.map { s -> s.id } })
 
+        val geometry = RouteGeometry(pkg.polyline)
         for (spot in pkg.spots) {
-            val anchor = if (spot.near == Spot.NEAR_DESTINATION) pkg.destination.location else pkg.stops.single { it.id == spot.near }.location
-            val km = Geo.distanceKm(anchor, spot.location)
-            assertTrue("${spot.name} is $km km from what it is near", km < 20.0)
+            // A spot that belongs to nothing is simply somewhere along the way: near the road.
+            val (what, km) = when (spot.near) {
+                null -> "the route" to geometry.project(spot.location).offsetKm
+                Spot.NEAR_DESTINATION -> pkg.destination.name to Geo.distanceKm(pkg.destination.location, spot.location)
+                else -> pkg.stops.single { it.id == spot.near }.let { it.name to Geo.distanceKm(it.location, spot.location) }
+            }
+            assertTrue("${spot.name} is $km km from $what", km < 20.0)
             assertTrue("${spot.name} needs a source", spot.sources.isNotEmpty() && spot.sources.all { it.url.startsWith("https://") })
+        }
+    }
+
+    @Test
+    fun theBundledSpotsOfAStopAreStillAheadWhenTheCarGetsThere() {
+        // The host leaves out a spot once the car is more than 2 km past the point where the spot
+        // meets the route (SpotPicker). A stop's spot that meets the route earlier than that would
+        // count as passed by the time the car pulls in, and the stop could never offer it.
+        val pkg = RoutePackageParser.parse(bundled())
+        val geometry = RouteGeometry(pkg.polyline)
+        for (spot in pkg.spots) {
+            val stop = pkg.stops.firstOrNull { it.id == spot.near } ?: continue
+            val beforeKm = geometry.project(stop.location).routeKm - geometry.project(spot.location).routeKm
+            assertTrue("${spot.name} meets the route ${"%.1f".format(beforeKm)} km before ${stop.name}", beforeKm <= 2.0)
+        }
+    }
+
+    @Test
+    fun aBundledSpotsReasonReadsAfterItsName() {
+        // A spot recommended on its own is said as "<name>은 <reason>", so a reason that names the
+        // spot again ("횡성 한우는 … 횡성 한우예요", "봉평 메밀은 … 봉평 메밀로 국수와 묵을 만들어요")
+        // tells nothing, and shows that the spot is a dish rather than a place to go.
+        val pkg = RoutePackageParser.parse(bundled())
+        for (spot in pkg.spots) {
+            val name = Korean.compact(spot.name)
+            val reason = Korean.compact(spot.reason)
+            val namesItselfAgain = reason.endsWith(Korean.compact(Korean.ieyo(spot.name))) ||
+                listOf("로", "으로").any { reason.contains(name + it) }
+            assertTrue("${Korean.eunNeun(spot.name)} ${spot.reason}", !namesItselfAgain)
         }
     }
 

@@ -21,9 +21,10 @@ Be precise about what has and has not been verified when you report results, and
 `README.md` ("지금 상태") when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
-  Seoul → Gangneung drive. All 260 tests also pass through Gradle (`testMockDebugUnitTest`). This
+  Seoul → Gangneung drive. All 309 tests also pass through Gradle (`testMockDebugUnitTest`). This
   is the part to trust. The phase-2 features of 2026-11-15 (spot recommendations that add a
-  waypoint, riddles, 끝말잇기, the destination tip) are unit-tested only, not yet used in the app.
+  waypoint, riddles, 끝말잇기, the destination tip), and the fixes after that day's review, are
+  unit-tested only, not yet used in the app.
 - Android code (`app.gildongmu.host`, the `mock` source set): run on 2026-11-12 as `mockDebug` on
   the Pleos Connect emulator (Android 14, API 34, image `release_connect_v2.1.0`), in a
   1682×1210 dp window with the demo panel open. The whole scripted drive played to Gangneung; the

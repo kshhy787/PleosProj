@@ -358,6 +358,21 @@ class HostEngineTest {
     }
 
     @Test
+    fun drivingOnIsARefusalThoughItSaysLetsGo() {
+        for (said in listOf("그냥 계속 가자", "다음에 가자")) {
+            val h = Harness()
+            h.startTrip()
+            h.jump(22.0)
+            h.send(Signal.SkipPressed)
+            h.send(Signal.Trip(minutes = 121.0))
+            h.finishSpeaking()
+            h.say(said)
+            assertEquals(said, "알겠어요.", h.speaking?.text)
+            assertEquals(said, 0, h.count<Action.AddWaypoint>())
+        }
+    }
+
+    @Test
     fun aLowBatteryStopMustHaveACharger() {
         val h = Harness()
         h.startTrip()
@@ -449,7 +464,12 @@ class HostEngineTest {
         h.drive(16.2)
         h.say("퀴즈 하자")
         assertEquals("The story is not cut off", 0, h.count<Action.StopSpeaking>())
+        while (h.speaking?.text != "좋아요, 퀴즈 시간이에요!") assertTrue("The quiz should start: ${h.spoken}", h.finishSentence())
+        // A quiz on the places has quiz cards; game cards are for riddles and 끝말잇기.
+        assertEquals(SegmentKind.QUIZ, h.engine.snapshot().card?.kind)
+        assertEquals("퀴즈 1/2", h.engine.snapshot().card?.title)
         h.finishSpeaking()
+        assertEquals("While it listens too", SegmentKind.QUIZ, h.engine.snapshot().card?.kind)
 
         h.assertSaid("좋아요, 퀴즈 시간이에요!")
         h.assertSaid("첫째 차례!")
@@ -712,7 +732,7 @@ class HostEngineTest {
     fun aFoodRequestNamesAtMostThreeSpotsInOrderAndWaitsForAChoice() {
         val h = tripWith(restaurants)
         h.say("뭐 먹지?")
-        assertEquals("먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
+        assertEquals("가는 길에 먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
         val card = h.engine.snapshot().card!!
         assertEquals(SegmentKind.RECOMMENDATION, card.kind)
         assertEquals("먹거리 추천", card.title)
@@ -721,7 +741,7 @@ class HostEngineTest {
         h.finishSpeaking()
         assertEquals(
             listOf(
-                "먹을 만한 곳을 세 군데 골라 봤어요.",
+                "가는 길에 먹을 만한 곳을 세 군데 골라 봤어요.",
                 "첫 번째, 해돋이식당.", "해돋이식당 이유예요.",
                 "두 번째, 달맞이분식.", "달맞이분식 이유예요.",
                 "세 번째, 별빛국수.", "별빛국수 이유예요.",
@@ -765,7 +785,8 @@ class HostEngineTest {
 
     @Test
     fun aRefusalLetsTheRecommendationDrop() {
-        for (said in listOf("아니", "괜찮아")) {
+        // "이번엔" is "this time", not "number two".
+        for (said in listOf("아니", "괜찮아", "이번엔 괜찮아요")) {
             val h = tripWith(restaurants)
             h.say("뭐 먹지")
             h.finishSpeaking()
@@ -795,6 +816,25 @@ class HostEngineTest {
     }
 
     @Test
+    fun aReplyThatChoseNothingIsNotTakenForSilence() {
+        val lakeside = listOf(
+            Fixtures.spot("v1", "경포호", 40.0, SpotCategory.SIGHT),
+            Fixtures.spot("v2", "경포대", 45.0, SpotCategory.SIGHT)
+        )
+        val h = tripWith(lakeside)
+        h.say("볼 거 있어?")
+        h.finishSpeaking()
+        h.say("경포 가자") // both names start that way
+        h.idle(HostConfig().choiceTimeoutMs)
+        assertEquals(1, h.count<Action.CancelListen>())
+        assertEquals("잘 못 알아들었어요.", h.speaking?.text)
+        h.finishSpeaking()
+        assertEquals("필요하면 다시 물어봐 주세요.", h.spoken.last())
+        h.assertNeverSaid("대답이 없어서")
+        assertEquals(0, h.count<Action.AddWaypoint>())
+    }
+
+    @Test
     fun keepsListeningForAChoiceAfterSomethingThatIsNotOne() {
         val h = tripWith(restaurants)
         h.say("뭐 먹지")
@@ -808,8 +848,76 @@ class HostEngineTest {
         assertEquals("Only what is left of the time", asked.timeoutMs - 4_000, again.timeoutMs)
         assertEquals("The choice is still open", 0, h.count<Action.CancelListen>())
 
+        // Yes chooses a spot only when a single one was offered.
+        h.now += 2_000
+        h.say("좋아")
+        assertEquals(Action.Listen(ListenMode.CHOICE, asked.timeoutMs - 6_000, asked.expected), h.last<Action.Listen>())
+        assertEquals(3, h.count<Action.Listen>())
+        assertEquals(0, h.count<Action.CancelListen>())
+        assertEquals(0, h.count<Action.AddWaypoint>())
+
         h.say("달맞이분식")
         assertEquals("f2", h.last<Action.AddWaypoint>()?.waypoint?.id)
+    }
+
+    @Test
+    fun turningOneSpotDownOrHoldingTheAnswerBackKeepsTheChoiceOpen() {
+        for (said in listOf("첫 번째 말고", "1번은 됐어", "아니 잠깐만", "아니 근데 거기 멀지 않아?")) {
+            val h = tripWith(restaurants)
+            h.say("뭐 먹지")
+            h.finishSpeaking()
+            val asked = h.last<Action.Listen>()!!
+            h.now += 3_000
+            h.say(said)
+            assertEquals(said, 0, h.count<Action.CancelListen>())
+            assertEquals(said, 0, h.count<Action.AddWaypoint>())
+            assertEquals(said, Action.Listen(ListenMode.CHOICE, asked.timeoutMs - 3_000, asked.expected), h.last<Action.Listen>())
+            h.say("두 번째")
+            assertEquals(said, "f2", h.last<Action.AddWaypoint>()?.waypoint?.id)
+        }
+    }
+
+    @Test
+    fun aSpotTurnedDownAndThenSilenceIsLeftWithoutSayingItWasNotUnderstood() {
+        val h = tripWith(restaurants)
+        h.say("뭐 먹지")
+        h.finishSpeaking()
+        h.say("첫 번째 말고") // understood: not that one, but nothing else chosen yet
+        h.idle(HostConfig().choiceTimeoutMs)
+        assertEquals("알겠어요.", h.speaking?.text)
+        h.finishSpeaking()
+        h.assertNeverSaid("잘 못 알아들었어요.")
+        h.assertNeverSaid("대답이 없어서 넘어갈게요.")
+        assertEquals(0, h.count<Action.AddWaypoint>())
+    }
+
+    @Test
+    fun aPlayersNameIsAChoiceOnlyWhenItSaysWhichOne() {
+        val h = tripWith(restaurants)
+        h.say("뭐 먹지")
+        h.finishSpeaking()
+        h.say("첫째야, 뭐 먹을래?") // asking the child called "first"
+        assertEquals(0, h.count<Action.AddWaypoint>())
+        assertEquals(ListenMode.CHOICE, h.engine.snapshot().listening)
+        h.say("둘째 거")
+        assertEquals("f2", h.last<Action.AddWaypoint>()?.waypoint?.id)
+    }
+
+    @Test
+    fun aWordOfTheDestinationDoesNotChooseTheSpotThatStartsWithIt() {
+        val market = Fixtures.spot("d1", "강릉 중앙시장", 99.0, near = Spot.NEAR_DESTINATION)
+        val harbour = Fixtures.spot("d2", "주문진 수산시장", 99.5, near = Spot.NEAR_DESTINATION)
+        val pkg = Fixtures.route(spots = listOf(market, harbour)).copy(destination = Place("강릉 경포해변", Fixtures.at(100.0)))
+        val h = Harness(pkg)
+        h.startTrip()
+        h.jump(5.0)
+        h.say("도착해서 뭐 먹지")
+        h.finishSpeaking()
+        h.say("강릉 가서 정하자") // about the town, not the market
+        assertEquals(0, h.count<Action.AddWaypoint>())
+        assertEquals(ListenMode.CHOICE, h.engine.snapshot().listening)
+        h.say("중앙시장")
+        assertEquals("d1", h.last<Action.AddWaypoint>()?.waypoint?.id)
     }
 
     @Test
@@ -818,7 +926,7 @@ class HostEngineTest {
         val h = tripWith(restaurants + cafe)
         h.say("커피 마시고 싶어")
         h.finishSpeaking()
-        assertEquals(listOf("커피 마시기 좋은 곳이 한 군데 있어요.", "바다다방은 바다다방 이유예요.", "들를까요?"), h.spoken.takeLast(3))
+        assertEquals(listOf("가는 길에 커피 마시기 좋은 곳이 한 군데 있어요.", "바다다방은 바다다방 이유예요.", "들를까요?"), h.spoken.takeLast(3))
         assertEquals(listOf("바다다방", "응", "아니"), h.last<Action.Listen>()?.expected)
         assertEquals("카페 추천", h.engine.snapshot().card?.subtitle)
 
@@ -827,14 +935,51 @@ class HostEngineTest {
     }
 
     @Test
+    fun turningDownTheOnlySpotByItsNameEndsTheRecommendationAtOnce() {
+        // With several spots, "첫 번째 말고" leaves the choice open; with one there is nothing else to choose.
+        val cafe = Fixtures.spot("c1", "바다다방", 40.0, SpotCategory.CAFE)
+        for (said in listOf("바다다방은 안 갈래", "바다다방 말고")) {
+            val h = tripWith(restaurants + cafe)
+            h.say("커피 마시고 싶어")
+            h.finishSpeaking()
+            h.say(said)
+            assertEquals(said, 1, h.count<Action.CancelListen>())
+            assertEquals(said, "알겠어요.", h.speaking?.text)
+            assertNull(said, h.engine.snapshot().listening)
+            assertEquals(said, 0, h.count<Action.AddWaypoint>())
+        }
+    }
+
+    @Test
     fun aRequestThatNamesTheDestinationGetsSpotsThere() {
-        val dinner = Fixtures.spot("d1", "노을식당", 99.0, near = Spot.NEAR_DESTINATION)
         val h = tripWith(restaurants + dinner)
         h.say("도착해서 뭐 먹지")
         h.finishSpeaking()
-        h.assertSaid("노을식당은 노을식당 이유예요.")
+        // The destination is 95 km away, so the spot is somewhere to go on arrival, and the question says so.
+        assertEquals(listOf("도착지 근처에 먹을 만한 곳이 한 군데 있어요.", "노을식당은 노을식당 이유예요.", "도착하면 들를까요?"), h.spoken.takeLast(3))
         h.assertNeverSaid("해돋이식당")
         assertEquals(listOf(dinner), h.engine.snapshot().offers)
+    }
+
+    @Test
+    fun aRecommendationSaysWhereItsSpotsAre() {
+        val atTheStop = listOf(
+            Fixtures.spot("f5", "휴게소국밥", 30.2, near = "s1"),
+            Fixtures.spot("f6", "휴게소분식", 30.4, near = "s1")
+        )
+        val stop = tripWith(atTheStop)
+        stop.say("휴게소에서 뭐 먹지")
+        assertEquals("하나휴게소 근처에 먹을 만한 곳을 두 군데 골라 봤어요.", stop.speaking?.text)
+
+        // With the destination 25 km away, a spot there is asked about like any other. A cafe,
+        // since the tip about the destination is only ever about food or sights.
+        val cafe = Fixtures.spot("d3", "바다다방", 99.5, SpotCategory.CAFE, near = Spot.NEAR_DESTINATION)
+        val close = Harness(Fixtures.route(spots = listOf(cafe)))
+        close.startTrip()
+        close.jump(75.0)
+        close.say("커피 마시고 싶어")
+        close.finishSpeaking()
+        assertEquals(listOf("도착지 근처에 커피 마시기 좋은 곳이 한 군데 있어요.", "바다다방은 바다다방 이유예요.", "들를까요?"), close.spoken.takeLast(3))
     }
 
     @Test
@@ -867,6 +1012,188 @@ class HostEngineTest {
         assertEquals("2시간 1분째 달리고 있어요.", h.speaking?.text)
     }
 
+    /** Somewhere to eat at the destination, 99 km along the road. */
+    private val dinner = Fixtures.spot("d1", "노을식당", 99.0, near = Spot.NEAR_DESTINATION)
+
+    /** A trip at 5 km on which [dinner] was chosen at once, and is the waypoint 94 km ahead. */
+    private fun dinnerChosenEarly(): Harness {
+        val h = tripWith(listOf(dinner))
+        h.say("도착해서 뭐 먹지")
+        h.finishSpeaking()
+        h.say("응")
+        h.finishSpeaking()
+        assertEquals("노을식당", h.engine.snapshot().waypointName)
+        return h
+    }
+
+    @Test
+    fun aSpotChosenFarAheadDoesNotHoldBackTheTwoHourSuggestion() {
+        val h = dinnerChosenEarly()
+        h.jump(22.0)
+        h.send(Signal.SkipPressed)
+        h.send(Signal.Trip(minutes = 121.0))
+        assertEquals("2시간 1분째 달리고 있어요.", h.speaking?.text)
+        h.finishSpeaking()
+        h.assertSaid("하나휴게소가 8킬로미터 앞이에요.")
+        h.assertSaid("들를까요?")
+    }
+
+    @Test
+    fun aSpotChosenFarAheadDoesNotHoldBackTheChargingSuggestion() {
+        val h = dinnerChosenEarly()
+        h.jump(22.0)
+        h.send(Signal.SkipPressed)
+        h.send(Signal.Battery(percent = 18, charging = false))
+        assertEquals("배터리가 18퍼센트 남았어요.", h.speaking?.text)
+        h.finishSpeaking()
+        h.assertSaid("하나휴게소가 8킬로미터 앞이에요.")
+        h.assertSaid("들러서 충전할까요?")
+    }
+
+    @Test
+    fun aSpotChosenFarAheadStillLetsAStoryMakeRoomForTheSuggestion() {
+        // As in aStoryIsKeptShortWhenAStopSuggestionIsAboutToBeDue: at 16.2 km the two-hour mark
+        // is 30 seconds away, and the suggestion it brings is not held back by the far spot.
+        val h = dinnerChosenEarly()
+        h.drive(15.5)
+        h.send(Signal.Trip(minutes = 119.0))
+        h.now += 1000
+        h.send(Signal.Trip(minutes = 119.0 + 1.0 / 60))
+        h.now += 29_000
+        h.send(Signal.Trip(minutes = 119.5))
+        h.jump(16.2)
+        assertEquals("가나 짧은 이야기 하나.", h.speaking?.text)
+    }
+
+    @Test
+    fun aChosenSpotWithoutAChargerDoesNotHoldBackTheChargingSuggestion() {
+        // The same spot 22 km ahead that holds back a break holds back no charging stop.
+        val h = Harness(Fixtures.route(spots = listOf(Fixtures.spot("f1", "해돋이식당", 44.0))))
+        h.startTrip()
+        h.jump(22.0)
+        h.say("배고파")
+        h.finishSpeaking()
+        h.say("응")
+        h.finishSpeaking()
+        assertEquals("해돋이식당", h.engine.snapshot().waypointName)
+
+        h.send(Signal.Battery(percent = 18, charging = false))
+        assertEquals("배터리가 18퍼센트 남았어요.", h.speaking?.text)
+        h.finishSpeaking()
+        h.assertSaid("하나휴게소가 8킬로미터 앞이에요.")
+        h.assertSaid("들러서 충전할까요?")
+    }
+
+    @Test
+    fun aChosenSpotTheCarNeverStoppedAtIsDroppedOnArrival() {
+        val h = dinnerChosenEarly()
+        h.send(Signal.DestinationArrived)
+        assertNull(h.engine.snapshot().waypointName)
+    }
+
+    /** A trip at 22 km on a road with [spots], with 하나휴게소, 8 km ahead, accepted as the break. */
+    private fun restStopAccepted(spots: List<Spot>): Harness {
+        val h = Harness(Fixtures.route(spots = spots))
+        h.startTrip()
+        h.jump(22.0)
+        h.send(Signal.SkipPressed)
+        h.send(Signal.Trip(minutes = 121.0))
+        h.finishSpeaking()
+        h.say("응")
+        h.finishSpeaking()
+        assertEquals("하나휴게소", h.engine.snapshot().waypointName)
+        return h
+    }
+
+    @Test
+    fun aSpotBeyondTheAcceptedStopDoesNotTakeItsPlaceAsTheNextStop() {
+        val h = restStopAccepted(restaurants)
+        h.say("뭐 먹지")
+        h.finishSpeaking()
+        h.say("세 번째")
+        assertEquals("Navigation is still asked to go there", "별빛국수", h.last<Action.AddWaypoint>()?.waypoint?.name)
+        assertEquals("The rest stop comes first on the way", "하나휴게소", h.engine.snapshot().waypointName)
+    }
+
+    @Test
+    fun aSpotBeforeTheAcceptedStopOrChosenOnceItIsPassedIsTheNextStop() {
+        val nearer = restStopAccepted(listOf(Fixtures.spot("f0", "새벽식당", 25.0)))
+        nearer.say("뭐 먹지")
+        nearer.finishSpeaking()
+        nearer.say("응")
+        assertEquals("새벽식당", nearer.engine.snapshot().waypointName)
+
+        val passed = restStopAccepted(restaurants)
+        passed.jump(31.0) // just past the rest area, which still counts as the waypoint
+        assertEquals("하나휴게소", passed.engine.snapshot().waypointName)
+        passed.say("뭐 먹지")
+        passed.finishSpeaking()
+        passed.say("첫 번째")
+        assertEquals("해돋이식당", passed.engine.snapshot().waypointName)
+    }
+
+    @Test
+    fun theSpotsOfAnAcceptedRestStopAreOfferedFirst() {
+        val spots = listOf(
+            Fixtures.spot("f1", "길가식당", 25.0),
+            Fixtures.spot("f2", "휴게소식당", 30.5, near = "s1")
+        )
+        val h = restStopAccepted(spots)
+        h.say("뭐 먹지")
+        h.finishSpeaking()
+        assertEquals(
+            listOf(
+                "가는 길에 먹을 만한 곳을 두 군데 골라 봤어요.",
+                "첫 번째, 휴게소식당.", "휴게소식당 이유예요.",
+                "두 번째, 길가식당.", "길가식당 이유예요.",
+                "가고 싶은 곳이 있으면 번호나 이름을 말해 주세요."
+            ),
+            h.spoken.takeLast(6)
+        )
+    }
+
+    @Test
+    fun aStoryIsTimedToEndAtAChosenSpot() {
+        val h = tripWith(listOf(Fixtures.spot("f1", "해돋이식당", 17.5)))
+        h.say("뭐 먹지")
+        h.finishSpeaking()
+        h.say("응")
+        h.finishSpeaking()
+        // At 90 km/h the spot is a minute away when the story at 20 km comes due: too little for
+        // the long version, which would fit before the next place.
+        h.drive(16.2)
+        assertEquals("가나 짧은 이야기 하나.", h.speaking?.text)
+    }
+
+    @Test
+    fun askingForTheListThatIsBeingReadDoesNotQueueItAgain() {
+        val h = tripWith(restaurants)
+        h.say("뭐 먹지?")
+        h.finishSentence() // the spots are being read out
+        h.say("배고파!")
+        h.finishSpeaking()
+        h.say("뭐 먹지") // while the host waits for the choice: not one, so it listens on
+        h.say("두 번째")
+        h.finishSpeaking()
+        assertEquals(1, h.spoken.count { it == "가는 길에 먹을 만한 곳을 세 군데 골라 봤어요." })
+        assertEquals("The choice, and listening on once", 2, h.count<Action.Listen>())
+        assertNull(h.engine.snapshot().listening)
+    }
+
+    @Test
+    fun aRequestedStoryGoesBeforeARequestedRecommendation() {
+        for (parked in listOf(false, true)) {
+            val h = tripWith(restaurants)
+            if (parked) h.send(Signal.Parked(true))
+            h.send(Signal.TurnGuidance(200)) // holds everything while both are asked for
+            h.say("뭐 먹지")
+            h.say("이야기해 줘")
+            h.send(Signal.TurnGuidance(null))
+            val first = if (parked) "가나 긴 이야기 하나." else "조금 있으면 지나갈 가나 이야기예요."
+            assertEquals("parked: $parked", first, h.speaking?.text)
+        }
+    }
+
     @Test
     fun askingForSomewhereToGoEndsQuiet() {
         val sights = listOf(
@@ -879,7 +1206,7 @@ class HostEngineTest {
         assertTrue(h.engine.snapshot().quiet)
         h.say("볼 거 있어?")
         assertFalse(h.engine.snapshot().quiet)
-        assertEquals("구경할 만한 곳을 두 군데 골라 봤어요.", h.speaking?.text)
+        assertEquals("가는 길에 구경할 만한 곳을 두 군데 골라 봤어요.", h.speaking?.text)
         assertEquals("볼거리 추천", h.engine.snapshot().card?.title)
     }
 
@@ -898,7 +1225,7 @@ class HostEngineTest {
         h.finishSpeaking()
         assertEquals(0, h.count<Action.StopSpeaking>())
         val suggestion = h.spoken.indexOf("들를까요?")
-        val recommendation = h.spoken.indexOf("먹을 만한 곳을 세 군데 골라 봤어요.")
+        val recommendation = h.spoken.indexOf("가는 길에 먹을 만한 곳을 세 군데 골라 봤어요.")
         assertTrue("The suggestion first, then the recommendation: ${h.spoken}", suggestion in 0 until recommendation)
     }
 
@@ -910,7 +1237,7 @@ class HostEngineTest {
         h.drive(16.5) // the place at 20 km comes into range while a navigation prompt holds everything
         h.say("뭐 먹지")
         h.send(Signal.TurnGuidance(null))
-        assertEquals("먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
+        assertEquals("가는 길에 먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
         h.finishSpeaking()
         h.say("괜찮아")
         h.finishSpeaking()
@@ -954,7 +1281,7 @@ class HostEngineTest {
         h.say("퀴즈 하자")
         h.say("뭐 먹지")
         h.send(Signal.TurnGuidance(null))
-        assertEquals("먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
+        assertEquals("가는 길에 먹을 만한 곳을 세 군데 골라 봤어요.", h.speaking?.text)
         h.finishSpeaking()
         h.say("괜찮아")
         h.finishSpeaking()
@@ -1083,6 +1410,48 @@ class HostEngineTest {
         h.say("하늘")
         h.finishSpeaking()
         assertEquals("도착해서 들러 볼 만한 노을식당은 노을식당 이유예요.", h.spoken.last())
+    }
+
+    @Test
+    fun theTipGoesBeforeAQuizOfferedForTheSilence() {
+        val h = Harness(Fixtures.route(spots = atTheDestination))
+        h.startTrip()
+        h.say("이야기해 줘") // a story told, so a quiz can be offered after a long silence
+        h.finishSpeaking()
+        h.jump(60.0)
+        h.send(Signal.TurnGuidance(200))
+        h.drive(70.5) // seven minutes on: the tip is due, and so is the quiz for the silence
+        h.send(Signal.TurnGuidance(null))
+        assertEquals("도착해서 들러 볼 만한 노을식당은 노을식당 이유예요.", h.speaking?.text)
+        h.finishSpeaking()
+        h.idle(181_000) // the tip broke the silence, so the quiz waits for another
+        h.assertSaid("심심하죠? 퀴즈 하나 할게요.")
+    }
+
+    @Test
+    fun theTipIsTimedByHowFastTheTripGoesNotByTheSpeedometer() {
+        val h = Harness(Fixtures.route(spots = atTheDestination))
+        // The trip starts at 57 km, past the first two places. Every second the car reports where
+        // it is and how long the trip has lasted: 90 km/h, though its speedometer says 120.
+        h.send(Signal.Parked(false))
+        h.send(Signal.Location(Fixtures.at(57.0), 120.0))
+        h.send(Signal.RouteStarted())
+        h.finishSpeaking()
+        var km = 57.0
+        var minutes = 0.0
+        fun driveTo(toKm: Double) {
+            while (km < toKm) {
+                h.now += 1000
+                km += 90.0 / 3600
+                minutes += 1.0 / 60
+                h.send(Signal.Location(Fixtures.at(km), 120.0))
+                h.send(Signal.Trip(minutes))
+            }
+        }
+        driveTo(69.9) // at the trip's own pace, still a little over 20 minutes to go
+        h.assertNeverSaid("도착해서 들러 볼 만한")
+        driveTo(70.1)
+        assertEquals("도착해서 들러 볼 만한 노을식당은 노을식당 이유예요.", h.speaking?.text)
     }
 
     @Test
@@ -1269,8 +1638,86 @@ class HostEngineTest {
         chaining.finishSpeaking()
         chaining.say("차고")
         chaining.finishSpeaking()
-        chaining.assertSaid("오늘은 여기까지 할게요.")
+        chaining.assertSaid("이번 판은 여기까지 할게요.")
         assertEquals(1, chaining.spoken.count { it.startsWith("좋아요, 끝말잇기 해요!") })
+    }
+
+    @Test
+    fun aQuizAskedForDuringRiddlesFollowsThemButNotDuringAQuiz() {
+        val sky = QuizQuestion("g1", "일반 문제 하나?", listOf("하늘"), "설명 g1.")
+        val sea = QuizQuestion("g2", "일반 문제 둘?", listOf("바다"), "설명 g2.")
+        val riddling = Harness(Fixtures.route(generalQuiz = listOf(sky), funQuiz = riddles), HostConfig(riddlesPerRound = 1))
+        riddling.startTrip()
+        riddling.say("수수께끼 하자")
+        riddling.say("퀴즈 하자") // while the riddles' intro is read out
+        riddling.finishSpeaking()
+        riddling.say("비누")
+        riddling.finishSpeaking()
+        riddling.assertSaid("수수께끼 끝!")
+        riddling.assertSaid("좋아요, 퀴즈 시간이에요!")
+        riddling.assertSaid("일반 문제 하나?")
+
+        val quizzing = Harness(Fixtures.route(generalQuiz = listOf(sky, sea)), HostConfig(quizQuestionsPerRound = 1))
+        quizzing.startTrip()
+        quizzing.say("퀴즈 하자")
+        quizzing.say("퀴즈 하자") // while the quiz's intro is read out
+        quizzing.finishSpeaking()
+        quizzing.say("하늘")
+        quizzing.finishSpeaking()
+        quizzing.assertSaid("퀴즈 끝!")
+        quizzing.assertNeverSaid("일반 문제 둘?")
+    }
+
+    @Test
+    fun afterArrivalSpotsNearTheDestinationAreDescribedWithoutAskingWhich() {
+        val seafood = Fixtures.spot("d4", "바닷가횟집", 98.0, near = Spot.NEAR_DESTINATION)
+        val h = Harness(Fixtures.route(spots = restaurants + atTheDestination + seafood))
+        h.startTrip()
+        h.send(Signal.DestinationArrived)
+        h.finishSpeaking()
+        h.say("뭐 먹지")
+        assertEquals("도착지 근처에 먹을 만한 곳이 두 군데 있어요.", h.speaking?.text)
+        assertEquals(SegmentKind.RECOMMENDATION, h.engine.snapshot().card?.kind)
+        assertEquals(listOf(atTheDestination[0], seafood), h.engine.snapshot().offers)
+        h.finishSpeaking()
+        assertEquals(listOf("노을식당은 노을식당 이유예요.", "바닷가횟집은 바닷가횟집 이유예요."), h.spoken.takeLast(2))
+        h.assertNeverSaid("해돋이식당")
+        h.assertNeverSaid("첫 번째")
+        h.assertNeverSaid("들를까요")
+        assertEquals("Nothing to choose", 0, h.count<Action.Listen>())
+        assertEquals("and no route to add a waypoint to", 0, h.count<Action.AddWaypoint>())
+        assertNull(h.engine.snapshot().waypointName)
+    }
+
+    @Test
+    fun afterArrivalGamesWaitForTheNextTrip() {
+        for (asked in listOf("수수께끼 내 줘", "끝말잇기 하자")) {
+            val h = Harness(Fixtures.route(funQuiz = riddles), words = words)
+            h.startTrip()
+            h.send(Signal.DestinationArrived)
+            h.finishSpeaking()
+            h.say(asked)
+            assertEquals(asked, "도착했어요!", h.speaking?.text)
+            h.finishSpeaking()
+            assertEquals(asked, "놀이는 다음 여행에서 또 해요.", h.spoken.last())
+            assertEquals(asked, 0, h.count<Action.Listen>())
+        }
+    }
+
+    @Test
+    fun afterArrivalAStoryOrAQuizIsAnsweredToo() {
+        // The parked panel and its 이야기 듣기 and 퀴즈 하기 buttons show on arrival as well.
+        for ((asked, answer) in listOf("이야기해 줘" to "이야기는 다음 여행에서 또 들려줄게요.", "퀴즈 하자" to "퀴즈는 다음 여행에서 또 해요.")) {
+            val h = Harness(Fixtures.route(listOf(QuizQuestion("g1", "일반 문제?", listOf("동해"), ""))))
+            h.startTrip()
+            h.send(Signal.DestinationArrived)
+            h.finishSpeaking()
+            h.say(asked)
+            assertEquals(asked, "도착했어요!", h.speaking?.text)
+            h.finishSpeaking()
+            assertEquals(asked, answer, h.spoken.last())
+            assertEquals(asked, 0, h.count<Action.Listen>())
+        }
     }
 
     @Test
@@ -1345,7 +1792,9 @@ class HostEngineTest {
         assertEquals(SegmentKind.GAME, h.engine.snapshot().card?.kind)
         assertEquals("끝말잇기", h.engine.snapshot().card?.title)
         h.finishSpeaking()
-        assertEquals(listOf("고래!", "둘째 차례! 래로 시작하는 말!"), h.spoken.takeLast(2))
+        // 두음법칙: after 고래 a word may start with 래 or 내, and the host says both.
+        assertEquals(listOf("고래!", "둘째 차례! 래 아니면 내로 시작하는 말!"), h.spoken.takeLast(2))
+        assertEquals("래 아니면 내로 시작하는 말", h.engine.snapshot().card?.caption)
 
         h.say("내일이요")
         h.finishSpeaking()
@@ -1385,7 +1834,7 @@ class HostEngineTest {
         h.finishSpeaking()
         h.say("내일")
         h.finishSpeaking()
-        assertEquals("와, 끝말잇기 정말 잘하네요! 오늘은 여기까지 할게요.", h.spoken.last())
+        assertEquals("와, 끝말잇기 정말 잘하네요! 이번 판은 여기까지 할게요.", h.spoken.last())
         h.assertNeverSaid("일기!")
         assertNull(h.engine.snapshot().listening)
         assertEquals("Two turns, two words", 2, h.count<Action.Listen>())
@@ -1405,6 +1854,51 @@ class HostEngineTest {
         h.say("차고")
         h.finishSpeaking()
         assertEquals("The game is over", 1, h.count<Action.Listen>())
+    }
+
+    @Test
+    fun aWrongStartNamesBothStartsThatWouldHaveDoneAndAWordWithOne() {
+        val h = Harness(words = listOf("기차", "차고", "고래", "내일"))
+        h.startTrip()
+        h.say("끝말잇기 하자")
+        h.finishSpeaking()
+        h.say("차고")
+        h.finishSpeaking()
+        assertEquals("고래!", h.spoken[h.spoken.size - 2])
+        h.say("사과")
+        h.finishSpeaking()
+        // The example starts with 내, so the host must have said that 내 would do.
+        assertEquals(
+            listOf("아쉬워요! 래 아니면 내로 시작하는 말이어야 해요.", "예를 들면 내일 같은 말이 있어요.", "이번 판은 제가 이겼어요. 다음에 또 해요!"),
+            h.spoken.takeLast(3)
+        )
+    }
+
+    @Test
+    fun whenNoWordCouldHaveFollowedTheHostWinsWithoutAnExample() {
+        val h = wordGame(HostConfig(wordChainRounds = 10))
+        for (word in listOf("차고", "내일", "기린")) {
+            h.say(word)
+            h.finishSpeaking()
+        }
+        assertEquals("No listed word starts with 형", "인형!", h.spoken[h.spoken.size - 2])
+        h.say("사과")
+        h.finishSpeaking()
+        assertEquals(listOf("아쉬워요! 형으로 시작하는 말이어야 해요.", "이번 판은 제가 이겼어요. 다음에 또 해요!"), h.spoken.takeLast(2))
+        h.assertNeverSaid("예를 들면")
+        assertNull(h.engine.snapshot().listening)
+    }
+
+    @Test
+    fun aListedWordThatEndsInIIsHeardWholeWhenSaidPolitely() {
+        val h = Harness(config = HostConfig(wordChainRounds = 10), words = listOf("차고", "고양이", "이불"))
+        h.startTrip()
+        h.say("끝말잇기 하자")
+        h.finishSpeaking()
+        h.assertSaid("차고!")
+        h.say("고양이요") // 고양이 with 요, not 고양 with 이요, which nothing would follow
+        h.finishSpeaking()
+        assertEquals(listOf("이불!", "둘째 차례! 불로 시작하는 말!"), h.spoken.takeLast(2))
     }
 
     @Test
@@ -1448,6 +1942,10 @@ class HostEngineTest {
         assertEquals(Action.Listen(ListenMode.WORD, asked.timeoutMs - 3_000, listOf("차고")), h.last<Action.Listen>())
         assertEquals("The turn is still open", 0, h.count<Action.CancelListen>())
 
+        h.say("잠깐만") // thinking aloud, which does not start with 차 but is no word either
+        assertEquals(3, h.count<Action.Listen>())
+        assertEquals("The turn is still open", 0, h.count<Action.CancelListen>())
+
         h.say("음 차고요")
         h.finishSpeaking()
         h.assertSaid("고래!")
@@ -1463,6 +1961,19 @@ class HostEngineTest {
         val after = h.engine.snapshot()
         assertFalse("Only the game stops", after.quiet)
         assertNull(after.listening)
+        h.drive(16.2)
+        assertTrue("Stories go on", h.toldStory("가나"))
+    }
+
+    @Test
+    fun enoughWhileTheHostSaysHowTheGameEndedDoesNotGoQuietEither() {
+        val h = wordGame()
+        h.say("사과") // does not start with 차: the host has won, and is saying so
+        assertEquals("아쉬워요! 차로 시작하는 말이어야 해요.", h.speaking?.text)
+        h.say("그만")
+        assertEquals("네, 끝말잇기는 여기까지 할게요.", h.speaking?.text)
+        h.finishSpeaking()
+        assertFalse(h.engine.snapshot().quiet)
         h.drive(16.2)
         assertTrue("Stories go on", h.toldStory("가나"))
     }
@@ -1519,6 +2030,26 @@ class HostEngineTest {
     }
 
     @Test
+    fun aWarningOrSkipEndsAWordGameOrAChoiceWithoutAWord() {
+        val endings = listOf(Signal.VehicleWarning(active = true), Signal.SkipPressed)
+        for (ending in endings) {
+            val playing = wordGame()
+            val choosing = tripWith(restaurants)
+            choosing.say("뭐 먹지")
+            choosing.finishSpeaking()
+            for ((what, h) in listOf("끝말잇기" to playing, "추천" to choosing)) {
+                val case = "$what, $ending"
+                val before = h.spoken.size
+                h.send(ending)
+                assertNull(case, h.engine.snapshot().listening)
+                assertNull(case, h.speaking)
+                h.idle(30_000)
+                assertEquals("$case: nothing more is said, but it said ${h.spoken}", before, h.spoken.size)
+            }
+        }
+    }
+
+    @Test
     fun withoutAWordListTheHostSaysItCannotPlay() {
         val h = Harness()
         h.startTrip()
@@ -1545,7 +2076,10 @@ class HostEngineTest {
         h.startTrip()
         h.jump(30.0)
         h.send(Signal.Parked(true))
+        h.send(Signal.TurnGuidance(200)) // holds everything until the offer is due as well
+        h.idle(HostConfig().restSettleMs)
         h.say("끝말잇기 하자")
+        h.send(Signal.TurnGuidance(null))
         assertEquals("좋아요, 끝말잇기 해요! 제가 먼저 할게요.", h.speaking?.text)
     }
 
@@ -1560,6 +2094,9 @@ class HostEngineTest {
         h.say("카페") // a word in the game, not a wish for coffee
         h.finishSpeaking()
         h.assertSaid("페달!")
+        h.say("그만") // nor is it asked for once the game is over
+        h.finishSpeaking()
+        h.assertSaid("네, 끝말잇기는 여기까지 할게요.")
         h.assertNeverSaid("커피 마시기 좋은 곳")
     }
 }

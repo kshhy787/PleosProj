@@ -17,6 +17,10 @@ class UnderstandingTest {
     private val food = listOf("초당두부마을", "강릉 중앙시장", "주문진수산시장")
     private val sights = listOf("경포대", "경포호", "오죽헌")
 
+    // The players as HostConfig names them, and the bundled route's destination.
+    private val players = listOf("첫째", "둘째")
+    private val destination = "강릉 경포해변"
+
     private fun bundled(path: String): String {
         val file = listOf(File("src/main/assets/$path"), File("app/src/main/assets/$path")).firstOrNull { it.exists() }
             ?: error("Cannot find $path from ${File(".").absolutePath}")
@@ -37,6 +41,18 @@ class UnderstandingTest {
         assertEquals(Intent.RESUME, Understanding.commandOf("이제 얘기해도 돼"))
         assertEquals(Intent.NONE, Understanding.commandOf("세종대왕"))
         assertEquals(Intent.NONE, Understanding.commandOf(""))
+    }
+
+    @Test
+    fun aQuietPlaceIsNotAskingForQuiet() {
+        // A family choosing a spot may want a quiet one, and saying so must not silence the host.
+        for (said in listOf("조용히 해 줘", "조용히", "조용해", "조용 좀 해 줘", "조용하게 가자", "시끄러워", "너무 시끄럽다", "조용!", "아 시끄러")) {
+            assertEquals(said, Intent.QUIET, Understanding.commandOf(said))
+        }
+        for (said in listOf("조용한 데", "조용한 데로 가자", "시끄러운 곳", "시끄러운 곳 말고")) {
+            assertEquals(said, Intent.NONE, Understanding.commandOf(said))
+        }
+        assertEquals(Intent.CAFE, Understanding.commandOf("조용한 카페 가자"))
     }
 
     @Test
@@ -108,7 +124,10 @@ class UnderstandingTest {
         assertEquals(Intent.QUIET, Understanding.commandOf("끝말잇기 그만"))
         assertEquals(Intent.QUIET, Understanding.commandOf("수수께끼 그만하자"))
         assertEquals(Intent.SKIP, Understanding.commandOf("맛집 말고 다른 얘기"))
-        assertEquals(Intent.QUIZ, Understanding.commandOf("음식 퀴즈 내 줘"))
+        // Each of these also holds a word that on its own asks for food, a cafe or a sight.
+        for (said in listOf("먹거리 퀴즈 내 줘", "맛집 퀴즈 하자", "커피 퀴즈 내 줘", "관광 퀴즈 내 줘")) {
+            assertEquals(said, Intent.QUIZ, Understanding.commandOf(said))
+        }
     }
 
     @Test
@@ -127,7 +146,8 @@ class UnderstandingTest {
         val answers = (pkg.pois.flatMap { it.quiz } + pkg.generalQuiz + pkg.funQuiz).flatMap { it.answers + it.choices }
         val replies = listOf(
             "응", "네", "어", "그래", "좋아요", "응 들르자", "들러 줘", "오케이",
-            "아니", "아니요", "괜찮아", "안 들를래", "그냥 가자", "나중에", "싫어", "됐어", "안 가도 돼"
+            "아니", "아니요", "괜찮아", "안 들를래", "그냥 가자", "나중에", "싫어", "됐어", "안 가도 돼",
+            "계속 가자", "그냥 쭉 가자", "다음에 가자"
         )
         for (said in answers + replies) {
             assertEquals(said, Intent.NONE, Understanding.commandOf(said))
@@ -136,10 +156,13 @@ class UnderstandingTest {
 
     @Test
     fun noBundledWordChainWordIsTakenForACommand() {
-        // The host offers these words as examples and the scripted passenger plays them. QUIET would
-        // silence the host mid-game, and a request repeated after the round would start something else.
+        // The host offers these words as examples and the scripted passenger plays them; a child may
+        // add a polite ending. QUIET would silence the host mid-game, and a request repeated after
+        // the round would start something else.
         for (word in WordList.parse(bundled("games/word-chain.txt"))) {
-            assertEquals(word, Intent.NONE, Understanding.commandOf(word))
+            for (said in listOf(word, word + "요", Korean.ieyo(word))) {
+                assertEquals(said, Intent.NONE, Understanding.commandOf(said))
+            }
         }
     }
 
@@ -155,6 +178,15 @@ class UnderstandingTest {
         for (said in listOf("아니", "아니요", "괜찮아", "안 들를래", "그냥 가자", "나중에", "싫어", "됐어", "안 가도 돼", "안 갈래")) {
             assertEquals(said, Intent.NO, Understanding.yesNoOf(said))
         }
+    }
+
+    @Test
+    fun drivingOnIsNoThoughItSaysLetsGo() {
+        // "가자" agrees to stop, but these mean going on without stopping.
+        for (said in listOf("계속 가자", "그냥 계속 가자", "그냥 쭉 가자", "다음에 가자", "다음에")) {
+            assertEquals(said, Intent.NO, Understanding.yesNoOf(said))
+        }
+        assertEquals(Intent.YES, Understanding.yesNoOf("응 빨리 가자"))
     }
 
     @Test
@@ -300,6 +332,21 @@ class UnderstandingTest {
     }
 
     @Test
+    fun arrivingAtARestStopIsAboutTheRestStop() {
+        val cases = listOf(
+            "휴게소 도착하면 뭐 먹지" to SpotArea.NEXT_STOP,
+            "휴게소에 도착하면 뭐 먹을까" to SpotArea.NEXT_STOP,
+            "다음 휴게소 도착해서 먹자" to SpotArea.NEXT_STOP,
+            // Arriving after the rest stop, or instead of stopping, is still arriving at the destination.
+            "휴게소 들렀다가 도착해서 먹자" to SpotArea.DESTINATION,
+            "휴게소 말고 도착해서 먹자" to SpotArea.DESTINATION
+        )
+        for ((said, area) in cases) {
+            assertEquals(said, area, Understanding.areaOf(said, "강릉 경포해변"))
+        }
+    }
+
+    @Test
     fun aChoiceCanBeSaidByItsNumber() {
         val cases = mapOf(
             0 to listOf("1번", "일번", "일 번이요", "첫 번째", "첫번째", "첫째", "첫 번째요"),
@@ -374,18 +421,76 @@ class UnderstandingTest {
         assertNull(Understanding.choiceOf("1번은 안 들를래", food))
         assertNull(Understanding.choiceOf("두 번째는 필요 없어", food))
         assertNull(Understanding.choiceOf("1번은 패스", food))
+        assertNull(Understanding.choiceOf("1번은 됐어", food))
+        assertNull(Understanding.choiceOf("초당은 나중에", food))
+        assertNull(Understanding.choiceOf("두 번째는 다음에 가자", food))
+        assertNull(Understanding.choiceOf("주문진은 너무 멀어", food))
         // The one said last was turned down, so the one before it stands.
         assertEquals(0, Understanding.choiceOf("1번 가자, 2번은 안 가도 돼", food))
+        // "됐어" only turns a choice down after 은 or 는: "주문진이면 됐어" is happy with it.
+        assertEquals(2, Understanding.choiceOf("주문진이면 됐어", food))
+    }
+
+    @Test
+    fun anOptionTurnedDownIsStillMentioned() {
+        // Nothing is chosen, but the reply is about the list: the family may still choose another.
+        for (said in listOf("첫 번째 말고", "1번은 됐어", "초당은 나중에", "마지막 거 빼고", "두 번째 말고 다른 데")) {
+            assertNull(said, Understanding.choiceOf(said, food))
+            assertTrue(said, Understanding.mentionsOption(said, food))
+        }
+        assertTrue(Understanding.mentionsOption("경포대는 별로", sights))
+        assertTrue(Understanding.mentionsOption("2번", food))
+        // A refusal of them all names none, and a player's name or the destination's is no mention.
+        for (said in listOf("아니", "괜찮아", "이번엔 괜찮아요", "아니 잠깐만", "")) {
+            assertFalse(said, Understanding.mentionsOption(said, food))
+        }
+        assertFalse(Understanding.mentionsOption("첫째야, 뭐 먹을래?", food, players))
+        assertFalse(Understanding.mentionsOption("강릉 가서 정하자", food, destinationName = destination))
+        assertFalse(Understanding.mentionsOption("1번", emptyList()))
+    }
+
+    @Test
+    fun aPlayersNameIsAChoiceOnlyWhenItSaysWhichOne() {
+        // The players are called 첫째 and 둘째, and the family talks to them while it chooses.
+        val choices = listOf("첫째" to 0, "첫째요" to 0, "둘째!" to 1, "첫째 거" to 0, "둘째 꺼" to 1, "둘째로 가자" to 1)
+        for ((said, index) in choices) {
+            assertEquals(said, index, Understanding.choiceOf(said, food, players))
+        }
+        // Calling a child, even with nothing after the name, is not a choice.
+        for (said in listOf("첫째야!", "둘째야", "첫째야, 뭐 먹을래?", "둘째는 어디 가고 싶어?", "첫째가 골라 봐")) {
+            assertNull(said, Understanding.choiceOf(said, food, players))
+        }
+        // An ordinal that is nobody's name, and the other ways to say a number, count as before.
+        assertEquals(2, Understanding.choiceOf("셋째가 좋겠다", food, players))
+        assertEquals(1, Understanding.choiceOf("둘째야, 두 번째 어때?", food, players))
+    }
+
+    @Test
+    fun aWordOfTheDestinationDoesNotPickTheSpotThatStartsWithIt() {
+        // 강릉 and 경포 are how the family says the destination, 강릉 경포해변.
+        for (said in listOf("강릉", "강릉 가서 정하자", "강릉 시장")) {
+            assertNull(said, Understanding.choiceOf(said, food, destinationName = destination))
+        }
+        assertNull(Understanding.choiceOf("경포 가자", listOf("경포대"), destinationName = destination))
+        // The whole name, or a start that is more than the destination's, still picks the spot.
+        val cases = listOf("강릉 중앙시장" to 1, "중앙시장" to 1, "강릉 중앙" to 1, "주문진" to 2, "초당" to 0)
+        for ((said, index) in cases) {
+            assertEquals(said, index, Understanding.choiceOf(said, food, destinationName = destination))
+        }
+        assertEquals(0, Understanding.choiceOf("경포대", listOf("경포대"), destinationName = destination))
+        assertEquals(1, Understanding.choiceOf("경포호 가 보자", sights, destinationName = destination))
     }
 
     @Test
     fun everyBundledSpotCanBeChosenByItsName() {
-        // The host reads out a few spots of one kind; saying a name must pick it among all of that kind.
+        // The host reads out a few spots of one kind; saying a name must pick it among all of that
+        // kind, also when the players' names and the destination's words are set aside.
         val pkg = RoutePackageParser.parse(bundled("routes/seoul-gangneung.json"))
         for ((category, spots) in pkg.spots.groupBy { it.category }) {
             val names = spots.map { it.name }
             for ((index, name) in names.withIndex()) {
                 assertEquals("$category $name", index, Understanding.choiceOf(name, names))
+                assertEquals("$category $name", index, Understanding.choiceOf(name, names, players, pkg.destination.name))
             }
         }
     }
@@ -402,6 +507,19 @@ class UnderstandingTest {
     fun aSinoKoreanNumberOnlyCountsAtTheStart() {
         // "이번에" is "this time", not "number two".
         assertEquals(0, Understanding.choiceOf("초당 이번에 가 보자", food))
+    }
+
+    @Test
+    fun thisTimeIsNotNumberTwoEvenAtTheStart() {
+        // "이번엔" and "이번에는" start many refusals.
+        for (said in listOf("이번엔 괜찮아요", "이번에는 됐어", "이번엔 됐어요", "이번엔 그냥 가자")) {
+            assertNull(said, Understanding.choiceOf(said, food))
+        }
+        // On its own or before anything else it is still the number, and a name after it still counts.
+        for (said in listOf("이번", "이번 거", "이번이요")) {
+            assertEquals(said, 1, Understanding.choiceOf(said, food))
+        }
+        assertEquals(0, Understanding.choiceOf("이번엔 초당", food))
     }
 
     @Test
@@ -435,11 +553,46 @@ class UnderstandingTest {
     }
 
     @Test
+    fun aWordEndingInIKeepsItWhenTheHostKnowsTheWord() {
+        // "고양이요" is 고양 with 이요 as much as 고양이 with 요. The engine passes the words it knows.
+        val known = WordList.parse(bundled("games/word-chain.txt")).toSet()
+        assertEquals("고양이", Understanding.wordOf("고양이요", known))
+        assertEquals("원숭이", Understanding.wordOf("원숭이에요", known))
+        assertEquals("호랑이", Understanding.wordOf("음, 호랑이요!", known))
+        assertEquals("책상", Understanding.wordOf("책상이요", known))
+        // Without them, 이요 is taken for the ending.
+        assertEquals("고양", Understanding.wordOf("고양이요"))
+    }
+
+    @Test
+    fun aWordSaidWithACheckIsStillTheWord() {
+        for (said in listOf("고래 할래", "고래 할게요", "고래 맞지?", "고래 맞아요?", "음 고래 어때?")) {
+            assertEquals(said, "고래", Understanding.wordOf(said))
+        }
+        assertNull(Understanding.wordOf("맞아"))
+    }
+
+    @Test
+    fun thinkingAloudOrSayingThePromptBackIsNoWord() {
+        // The player keeps the rest of the turn instead of losing the game with a word that is none.
+        for (said in listOf("잠깐만", "잠깐만요", "어 뭐지", "음 뭐더라", "글쎄요", "잠시만요", "래로 시작하는 말?", "내로 시작 하는 거 뭐 있지")) {
+            assertNull(said, Understanding.wordOf(said))
+        }
+        assertEquals("고래", Understanding.wordOf("잠깐만, 고래!"))
+    }
+
+    @Test
     fun everyBundledWordChainWordIsHeardAsItself() {
         // The host offers these as examples and the scripted passenger plays them. A listed word
-        // ending like a polite ending, such as 대중가요, would lose its last syllable.
-        for (word in WordList.parse(bundled("games/word-chain.txt"))) {
+        // ending like a polite ending, such as 대중가요, would lose its last syllable. A child may
+        // add one, and "원숭이에요" is how many write 원숭이예요.
+        val words = WordList.parse(bundled("games/word-chain.txt"))
+        val known = words.toSet()
+        for (word in words) {
             assertEquals(word, Understanding.wordOf(word))
+            for (said in listOf(word + "요", word + "에요", Korean.ieyo(word))) {
+                assertEquals(said, word, Understanding.wordOf(said, known))
+            }
         }
     }
 

@@ -106,3 +106,16 @@ def test_reports_broken_spots_and_fun_questions(bundled):
         "kind 'joke'", "question 'riddle-soap' needs at least one answer", "funQuiz question 'riddle-chair': unspeakable",
     ):
         assert fragment in problems, fragment
+
+
+def test_a_stops_spot_must_not_meet_the_route_well_before_the_stop(bundled):
+    # The app counts a spot as passed 2 km after the car goes by where it meets the route.
+    broken = copy.deepcopy(bundled)
+    stop = next(s for s in broken["stops"] if s["id"] == "hoengseong")
+    spot = broken["spots"][0]
+    spot["near"] = "hoengseong"
+    spot["lat"], spot["lon"] = 37.398, 127.972          # on the route, about 20 km before 횡성휴게소
+    problems = "\n".join(check.package_problems(broken))
+    assert "before stop 'hoengseong'" in problems
+    spot["lat"], spot["lon"] = stop["lat"], stop["lon"]  # at the stop itself: fine
+    assert "before stop" not in "\n".join(check.package_problems(broken))

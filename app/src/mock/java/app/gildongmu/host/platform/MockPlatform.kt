@@ -279,7 +279,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
          * Shown in the diagnostics, to tell from a screenshot which version of the code is running.
          * Change it whenever the app's behaviour changes; add " · 2" and so on for a second build on one day.
          */
-        const val BUILD_NOTE = "2026-11-15"
+        const val BUILD_NOTE = "2026-11-15 · 2"
         const val MICROPHONE_REQUEST = 1
     }
 }

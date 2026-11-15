@@ -5,6 +5,7 @@ import app.gildongmu.core.ListenMode
 import app.gildongmu.core.Signal
 import app.gildongmu.core.Spot
 import app.gildongmu.core.toWaypoint
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -16,14 +17,15 @@ class MockDriveTest {
 
     private val pkg = Fixtures.route()
 
-    private fun scenario(extra: String = "") = ScenarioParser.parse(
+    /** [stops] are the scenario's plans for where the car stops; [extra] is spliced in after them. */
+    private fun scenario(extra: String = "", stops: String = """{ "stop": "s1", "seconds": 10, "chargeTo": 80 }""") = ScenarioParser.parse(
         """
         {
           "schema": 1, "route": "test", "timeScale": 60, "players": ["가", "나"],
           "battery": { "startPercent": 50, "kmPerPercent": 5 },
           "legs": [ { "untilKm": 50, "kph": 60 }, { "untilKm": 999, "kph": 120, "timeScale": 30 } ],
           "events": [ { "atKm": 10, "say": "퀴즈 하자" }, { "atKm": 20, "turnDistanceM": 300, "holdSeconds": 3 } ],
-          "stops": [ { "stop": "s1", "seconds": 10, "chargeTo": 80 } ]
+          "stops": [ $stops ]
           $extra
         }
         """
@@ -37,6 +39,30 @@ class MockDriveTest {
             if (!until()) all.addAll(drive.advance(100))
         }
         return all
+    }
+
+    /**
+     * Drives to the end in 100 ms steps and returns each stop on the way, rounded: the kilometre
+     * along the route where the car parked, and how many real seconds it stayed there.
+     */
+    private fun stopsOnTheWay(drive: MockDrive): List<Pair<Int, Int>> {
+        val stops = ArrayList<Pair<Int, Int>>()
+        var nowMs = 0L
+        var parkedAtMs = 0L
+        drive.start()
+        while (!drive.arrived) {
+            check(nowMs < 600_000) { "The car never arrived" }
+            nowMs += 100
+            for (signal in drive.advance(100)) {
+                if (signal !is Signal.Parked) continue
+                if (signal.parked) {
+                    parkedAtMs = nowMs
+                } else {
+                    stops.add(drive.progressKm.roundToInt() to ((nowMs - parkedAtMs) / 1000.0).roundToInt())
+                }
+            }
+        }
+        return stops
     }
 
     @Test
@@ -111,7 +137,8 @@ class MockDriveTest {
 
     @Test
     fun stopsForHalfAMinuteAtAChosenSpotWithoutCharging() {
-        val drive = MockDrive(pkg, scenario())
+        // The scenario plans a charge there, as it would at a rest area, but a spot has no charger.
+        val drive = MockDrive(pkg, scenario(stops = """{ "stop": "f1", "seconds": 30, "chargeTo": 80 }"""))
         // A restaurant a kilometre off the road. The scripted car stays on the route, so it stops
         // where the road passes closest.
         drive.onWaypointAdded(Fixtures.spot("f1", "국밥집", 40.0, eastKm = 1.0).toWaypoint())
@@ -139,6 +166,49 @@ class MockDriveTest {
         assertNull("Less than two kilometres before the end", drive.waypoint)
         drive.onWaypointAdded(Fixtures.spot("market", "시장", 97.5).toWaypoint())
         assertEquals("Two and a half kilometres before the end", "market", drive.waypoint?.id)
+    }
+
+    @Test
+    fun stopsAtEveryWaypointNearestFirstWhateverTheOrderTheyWereAddedIn() {
+        // A rest stop agreed to and then a restaurant beyond it, or the other way round: navigation
+        // goes through both in route order, and so does the scripted car.
+        val restStop = pkg.stops.first { it.id == "s1" }.toWaypoint()
+        val restaurant = Fixtures.spot("f1", "막국수집", 70.0).toWaypoint()
+        for (order in listOf(listOf(restStop, restaurant), listOf(restaurant, restStop))) {
+            val drive = MockDrive(pkg, scenario())
+            order.forEach(drive::onWaypointAdded)
+            assertEquals("The nearer one comes first", "s1", drive.waypoint?.id)
+            assertEquals(
+                "Added as ${order.map { it.name }}: the rest stop for its planned 10 s, then the restaurant for half a minute",
+                listOf(30 to 10, 70 to 30),
+                stopsOnTheWay(drive)
+            )
+        }
+    }
+
+    @Test
+    fun aWaypointAddedTwiceIsOneStop() {
+        val drive = MockDrive(pkg, scenario())
+        val spot = Fixtures.spot("f1", "국밥집", 40.0).toWaypoint()
+        drive.onWaypointAdded(spot)
+        drive.onWaypointAdded(spot)
+        assertEquals(listOf(40 to 30), stopsOnTheWay(drive))
+    }
+
+    @Test
+    fun aWaypointAddedDuringARestIsVisitedAfterIt() {
+        val drive = MockDrive(pkg, scenario())
+        drive.onWaypointAdded(pkg.stops.first { it.id == "s1" }.toWaypoint())
+        run(drive, seconds = 40) { drive.parked }
+        assertEquals("Resting at the rest area", "s1", drive.waypoint?.id)
+
+        // While they rest, the family picks a restaurant further on.
+        drive.onWaypointAdded(Fixtures.spot("f1", "국밥집", 45.0).toWaypoint())
+        val signals = run(drive, seconds = 60) { drive.parked && drive.progressKm > 40.0 }
+        val parked = signals.filterIsInstance<Signal.Parked>().map { it.parked }
+        assertEquals("Leaves the rest area, then parks by the restaurant", listOf(false, true), parked)
+        assertEquals(45.0, drive.progressKm, 0.05)
+        assertEquals("f1", drive.waypoint?.id)
     }
 
     @Test

@@ -23,7 +23,7 @@ import kotlin.math.roundToInt
  *
  * While the car is moving it is one card: what the host is saying, how far through it is, and a
  * skip button. Everything else is voice. The lower panel with the scoreboard, the route diagram
- * and two shortcut buttons exists only while parked, and is removed the moment the car moves.
+ * and the shortcut buttons exists only while parked, and is removed the moment the car moves.
  *
  * The window it is given can be any size and can change: a whole wide display, half of a split
  * screen, a short strip. [ScreenFit] decides the arrangement for the size at hand, and this class
@@ -86,6 +86,12 @@ class HostScreen(private val context: Context) {
     private val scores = Ui.text(context, 26f, Palette.TEXT, bold = true)
     private val strip = RouteStripView(context)
 
+    /** The scores and the shortcut buttons: side by side, or the buttons under the scores. */
+    private val parkedRow: LinearLayout = Ui.row(context)
+
+    /** The shortcut buttons, kept together so that [parkedRow] can move them as one. */
+    private val shortcuts: LinearLayout = Ui.row(context)
+
     init {
         val pad = Ui.dp(context, 24)
         root.setBackgroundColor(Palette.BACKGROUND)
@@ -135,6 +141,7 @@ class HostScreen(private val context: Context) {
             }
         }
         sizeCard(next)
+        if (previous?.shortcutsBelow != next.shortcutsBelow) arrangeParkedRow(next.shortcutsBelow)
         Ui.show(strip, next.showRoute)
         root.requestLayout()
     }
@@ -145,7 +152,8 @@ class HostScreen(private val context: Context) {
         val size = "${(root.width / density).roundToInt()}×${(root.height / density).roundToInt()}dp · 밀도 $density"
         val current = fit ?: return size
         return size + " · " + (if (current.stacked) "위아래" else "나란히") + " · " +
-            (if (current.compact) "작은 카드" else "큰 카드") + (if (current.narrow) " · 좁음" else "") + " · 자막 ${current.captionLines}줄"
+            (if (current.compact) "작은 카드" else "큰 카드") + (if (current.narrow) " · 좁음" else "") + " · 자막 ${current.captionLines}줄" +
+            (if (current.shortcutsBelow) " · 버튼 아래 줄" else "")
     }
 
     private fun buildStatusRow(): View {
@@ -196,7 +204,7 @@ class HostScreen(private val context: Context) {
         card.addView(bottom, Ui.params(Ui.MATCH, Ui.WRAP))
         this.bottom = bottom
         // Until the window has a size, assume the wide display the card was drawn for.
-        sizeCard(ScreenFit(stacked = false, compact = false, narrow = false, captionLines = 3, showRoute = false))
+        sizeCard(ScreenFit(stacked = false, compact = false, narrow = false, captionLines = 3, showRoute = false, shortcutsBelow = false))
 
         // The card sits in a frame so that the hint can float over its bottom margin without taking
         // any room from the card, which ScreenFit has already measured out.
@@ -242,19 +250,41 @@ class HostScreen(private val context: Context) {
         parkedPanel.background = Ui.rounded(Palette.SURFACE, Ui.dp(context, 28), Palette.OUTLINE, Ui.dp(context, 2))
         parkedPanel.setPadding(pad, pad, pad, pad)
 
-        val top = Ui.row(context)
-        top.addView(scores, Ui.margins(Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 12)))
-        top.addView(
-            Ui.button(context, "이야기 듣기", sizeSp = 20f, minHeightDp = 60) { onShortcut("이야기해 줘") },
-            Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = Ui.dp(context, 16))
-        )
-        top.addView(
-            Ui.button(context, "퀴즈 하기", sizeSp = 20f, minHeightDp = 60) { onShortcut("퀴즈 하자") },
-            Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = Ui.dp(context, 16))
-        )
-        parkedPanel.addView(top, Ui.params(Ui.MATCH, Ui.WRAP))
+        for (shortcut in ScreenFit.PARKED_SHORTCUTS) {
+            val button = Ui.button(context, shortcut.label, sizeSp = 20f, minHeightDp = 60) { onShortcut(shortcut.request) }
+            // Cut rather than wrapped in a window narrower than ScreenFit plans for: a second line
+            // would make the panel taller than the room it has been given.
+            button.maxLines = 1
+            button.ellipsize = TextUtils.TruncateAt.END
+            shortcuts.addView(button)
+        }
+        parkedRow.addView(scores)
+        parkedRow.addView(shortcuts)
+        // Until the window has a size, assume the wide display, as the card does.
+        arrangeParkedRow(below = false)
+        parkedPanel.addView(parkedRow, Ui.params(Ui.MATCH, Ui.WRAP))
         parkedPanel.addView(strip, Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, 84)), top = Ui.dp(context, 8)))
         return parkedPanel
+    }
+
+    /**
+     * The shortcut buttons beside the scores or, when [ScreenFit] finds the card too narrow for one
+     * row, on a row of their own under the scores, where they share the width equally.
+     */
+    private fun arrangeParkedRow(below: Boolean) {
+        val gap = Ui.dp(context, if (below) 12 else 16)
+        parkedRow.orientation = if (below) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        scores.layoutParams = Ui.margins(if (below) Ui.params(Ui.MATCH, Ui.WRAP) else Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 12))
+        shortcuts.layoutParams = if (below) Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = gap) else Ui.params(Ui.WRAP, Ui.WRAP)
+        // Under the scores each button is a third of the row with its label centred in it, so the
+        // wide side padding that sizes the buttons beside the scores would only take the label's room.
+        val side = Ui.dp(context, if (below) 8 else 28)
+        for (i in 0 until shortcuts.childCount) {
+            val button = shortcuts.getChildAt(i)
+            val left = if (below && i == 0) 0 else gap
+            button.layoutParams = Ui.margins(if (below) Ui.params(0, Ui.WRAP, 1f) else Ui.params(Ui.WRAP, Ui.WRAP), left = left)
+            button.setPadding(side, button.paddingTop, side, button.paddingBottom)
+        }
     }
 
     /**

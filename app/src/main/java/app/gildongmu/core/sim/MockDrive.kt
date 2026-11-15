@@ -44,7 +44,16 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
     private val timers = ArrayList<Timer>()
     private var quizReplies = 0
 
-    private var plannedStop: PlannedStop? = null
+    /**
+     * Where the car will stop, nearest first. Navigation keeps every waypoint it is given and goes
+     * through them in route order, so the car does too: a spot chosen after agreeing to a rest
+     * stop, or while parked at one, is visited in its turn instead of replacing the stop or being
+     * dropped when the rest ends.
+     */
+    private val plannedStops = ArrayList<PlannedStop>()
+
+    /** The waypoint the car is parked at, while it rests there. */
+    private var stoppedAt: Waypoint? = null
     private var restingAt: ScenarioStop? = null
     private var restRemainingMs = 0.0
     private var restChargePerMs = 0.0
@@ -64,8 +73,8 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
 
     val routeLengthKm: Double get() = geometry.lengthKm
 
-    /** The waypoint the car is going to stop at, until it has left it. */
-    val waypoint: Waypoint? get() = plannedStop?.waypoint
+    /** The waypoint the car is parked at, or else the next one it will stop at. */
+    val waypoint: Waypoint? get() = stoppedAt ?: plannedStops.firstOrNull()?.waypoint
 
     /** When false, scripted passenger replies are off and someone has to answer the host. */
     var autoRepliesEnabled = true
@@ -100,10 +109,16 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
      * route, so it stops where the waypoint meets it: if that point is still ahead, and at least
      * [END_SLACK_KM] before the end. The point is found by projection, since a spot is not one of
      * the package's stops.
+     *
+     * Waypoints planned earlier stay planned. One the car already has is not added again, or it
+     * would stop there twice.
      */
     fun onWaypointAdded(waypoint: Waypoint) {
         val km = geometry.project(waypoint.location).routeKm
-        if (km > progressKm && km <= geometry.lengthKm - END_SLACK_KM) plannedStop = PlannedStop(waypoint, km)
+        if (km <= progressKm || km > geometry.lengthKm - END_SLACK_KM) return
+        if (plannedStops.any { it.waypoint.id == waypoint.id }) return
+        plannedStops.add(PlannedStop(waypoint, km))
+        plannedStops.sortBy { it.routeKm }
     }
 
     /** The host started listening; schedule the scripted reply, if the scenario has one. */
@@ -146,10 +161,9 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         val kph = leg.kph
         var targetKm = progressKm + kph * simulatedHours
 
-        val stop = plannedStop
-        val stopAt = stop?.routeKm
-        val reachesStop = stopAt != null && targetKm >= stopAt
-        if (stopAt != null && reachesStop) targetKm = stopAt
+        val stop = plannedStops.firstOrNull()
+        val reachesStop = stop != null && targetKm >= stop.routeKm
+        if (stop != null && reachesStop) targetKm = stop.routeKm
         val reachesEnd = !reachesStop && targetKm >= geometry.lengthKm
         if (reachesEnd) targetKm = geometry.lengthKm
 
@@ -164,6 +178,7 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
         fireEvents(out)
 
         if (stop != null && reachesStop) {
+            plannedStops.remove(stop)
             park(stop.waypoint, out)
         } else if (reachesEnd) {
             arrived = true
@@ -191,6 +206,7 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
     private fun park(waypoint: Waypoint, out: MutableList<Signal>) {
         // A rest stop the scenario plans for keeps its plan; anywhere else is a half-minute break.
         val plan = scenario.stops.firstOrNull { it.stopId == waypoint.id } ?: ScenarioStop(waypoint.id, 30.0, null)
+        stoppedAt = waypoint
         restingAt = plan
         restRemainingMs = plan.seconds * 1000.0
         val target = plan.chargeToPercent
@@ -209,8 +225,10 @@ class MockDrive(private val pkg: RoutePackage, private val scenario: Scenario) {
             reportBattery(charging = restRemainingMs > 0.0, out = out)
         }
         if (restRemainingMs <= 0.0) {
+            // Only this stop is done with. Those further on, including any added during the rest,
+            // are still to come.
+            stoppedAt = null
             restingAt = null
-            plannedStop = null
             reportBattery(charging = false, out = out)
             out.add(Signal.Parked(false))
         }

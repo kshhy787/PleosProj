@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from . import speech
+from .geo import RouteGeometry
 
 SHORT_SECONDS = (9.0, 22.0)
 LONG_SECONDS = (28.0, 60.0)
@@ -24,6 +25,10 @@ _ON_THE_SPOT_OPENINGS = ("지금 지나", "지금 보이", "지금 달리", "여
 
 # The same values the app accepts (core/Model.kt: SpotCategory, QuizKind, Spot.NEAR_DESTINATION).
 SPOT_CATEGORIES = ("food", "sight", "cafe")
+
+# The app leaves out a spot once the car is this far past where the spot meets the route
+# (core/SpotPicker.kt), so a rest stop's spot must not meet the route earlier than this before the stop.
+PASSED_SPOT_KM = 2.0
 FUN_KINDS = ("riddle", "nonsense")
 NEAR_DESTINATION = "destination"
 
@@ -149,6 +154,11 @@ def package_problems(package: dict[str, Any]) -> list[str]:
         questions.extend(poi.get("quiz") or [])
 
     stop_ids = {stop.get("id") for stop in package.get("stops") or []}
+    stops_by_id = {stop.get("id"): stop for stop in package.get("stops") or [] if _is_position(stop)}
+    try:
+        geometry = RouteGeometry([tuple(p) for p in polyline]) if len(polyline) >= 2 else None
+    except (TypeError, ValueError):
+        geometry = None
     for spot in package.get("spots") or []:
         label = spot.get("id")
         unique(label, "spot")
@@ -172,6 +182,14 @@ def package_problems(package: dict[str, Any]) -> list[str]:
         sources = spot.get("sources") or []
         if not sources or not all(source.get("title") and source.get("url") for source in sources):
             problems.append(f"spot {label!r} needs at least one source with a title and url")
+        stop = stops_by_id.get(near)
+        if geometry and stop and _is_position(spot):
+            before = geometry.project((stop["lat"], stop["lon"])).route_km - geometry.project((spot["lat"], spot["lon"])).route_km
+            if before > PASSED_SPOT_KM:
+                problems.append(
+                    f"spot {label!r} meets the route {before:.1f} km before stop {near!r}, so the app counts it as "
+                    f"passed before the car gets there; drop its near or move it"
+                )
 
     for question in package.get("funQuiz") or []:
         label = question.get("id")
