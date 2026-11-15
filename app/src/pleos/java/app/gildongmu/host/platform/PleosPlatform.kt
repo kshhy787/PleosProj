@@ -123,9 +123,9 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
         val session = demo
         if (session != null) {
             // The scripted car is the car now. Only what this device itself reports still counts:
-            // a sentence ending, the skip button, the parked screen's shortcuts.
+            // a sentence ending, the skip button, the parked screen's shortcuts, a touch on a tile.
             when (signal) {
-                is Signal.SpeechFinished, is Signal.Utterance, Signal.SkipPressed -> session.dispatch(signal)
+                is Signal.SpeechFinished, is Signal.Utterance, Signal.SkipPressed, is Signal.OfferTapped -> session.dispatch(signal)
                 else -> {}
             }
             return
@@ -145,6 +145,8 @@ class PleosPlatform(private val activity: Activity, private val screen: HostScre
     override fun start() {
         screen.onSkip = { handle(Signal.SkipPressed) }
         screen.onShortcut = { text -> handle(Signal.Utterance(text)) }
+        // Sent whenever a tile is touched; whether a touch may choose a spot is the host's rule.
+        screen.onOfferTapped = { index -> handle(Signal.OfferTapped(index)) }
         // For showing the app on an emulator that cannot be made to start route guidance or to
         // move along a route: pressing and holding the destination at the top left starts the
         // scripted demo drive. Take it out before the app goes into a real car.

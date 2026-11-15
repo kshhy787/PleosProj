@@ -3,6 +3,7 @@ package app.gildongmu.host.ui
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
@@ -12,22 +13,30 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import app.gildongmu.core.CardText
 import app.gildongmu.core.HostSnapshot
+import app.gildongmu.core.Illustration
 import app.gildongmu.core.LightCue
 import app.gildongmu.core.Phase
 import app.gildongmu.core.ScreenFit
+import app.gildongmu.core.Tone
 import kotlin.math.roundToInt
 
 /**
  * The whole screen.
  *
- * While the car is moving it is one card: what the host is saying, how far through it is, and a
- * skip button. Everything else is voice. The lower panel with the scoreboard, the route diagram
- * and the shortcut buttons exists only while parked, and is removed the moment the car moves.
+ * While the car is moving it is one card: a picture, what the host is saying, how far through it
+ * is, what comes next, and a skip button. Everything else is voice. The card has the colour of
+ * what is on it (its [Tone]), so a glance tells a story from a quiz from a place to stop. When the
+ * host recommends places, the card shows them as numbered tiles instead of the picture and the
+ * title. The scoreboard, the route diagram and the shortcut buttons exist only while parked, and
+ * are removed the moment the car moves.
  *
  * The window it is given can be any size and can change: a whole wide display, half of a split
- * screen, a short strip. [ScreenFit] decides the arrangement for the size at hand, and this class
- * applies it whenever the size changes.
+ * screen, a short strip. [ScreenFit] decides the arrangement for the size at hand and for what is
+ * showing, and this class applies it whenever either changes. The pieces are laid out exactly as
+ * the list in [ScreenFit]'s comment has them, because its rules add up their heights: a size
+ * changed here has to change there too.
  */
 class HostScreen(private val context: Context) {
 
@@ -36,6 +45,13 @@ class HostScreen(private val context: Context) {
 
     /** A parked-screen shortcut was pressed; the text is handled exactly as if it had been spoken. */
     var onShortcut: (String) -> Unit = {}
+
+    /**
+     * The tile of a recommended spot was touched; the number counts from zero through
+     * [HostSnapshot.offers]. Tiles take touches only while the car is parked and a spot can be
+     * chosen, and the host checks both again.
+     */
+    var onOfferTapped: (Int) -> Unit = {}
 
     /** The destination at the top left was pressed and held. A hook for test builds, not part of the driving UI. */
     var onDestinationHeld: () -> Unit = {}
@@ -55,62 +71,96 @@ class HostScreen(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var last: HostSnapshot? = null
 
-    /** The status row, the card and the parked panel: everything that is not the side panel. */
+    /** The status row, the card and the parked screen's pieces: everything that is not the side panel. */
     private val column: LinearLayout = Ui.column(context)
 
-    /** The parked panel is showing. */
+    /** The parked screen is showing. */
     private var parked = false
 
-    /** The arrangement in force; null until the window has a size. */
-    private var fit: ScreenFit? = null
+    /** Spots are on offer, so the card is the recommendation card. [ScreenFit] is asked with it. */
+    private var offering = false
+
+    /** The arrangement in force. Until the window has a size, the one for a wide display. */
+    private var fit: ScreenFit = ScreenFit.of(1408f, 700f, sidePanel = false, parked = false, offers = false)
 
     private val destination = Ui.text(context, 22f, Palette.TEXT, bold = true)
     private val trip = Ui.text(context, 20f, Palette.TEXT_SECONDARY)
     private val battery = Ui.text(context, 20f, Palette.TEXT_SECONDARY)
     private val waypoint = Ui.text(context, 20f, Palette.WARM, bold = true)
 
-    private val card: LinearLayout = Ui.column(context)
+    private val card: LinearLayout = Ui.row(context)
     private val cardShape: GradientDrawable = Ui.rounded(Palette.SURFACE, Ui.dp(context, 28), Palette.OUTLINE, Ui.dp(context, 2))
-    private val kind = Ui.text(context, 22f, Palette.ACCENT, bold = true)
+
+    /** The illustration panel on the left of the card. */
+    private val art = ArtPanel(context)
+
+    /**
+     * Everything on the card that is not the illustration, from the chip down to the bottom row:
+     * the title and the caption between them or, on the recommendation card, the tiles and the hint.
+     */
+    private val text: LinearLayout = Ui.column(context)
+    private val chip = Ui.text(context, 22f, Palette.NOTICE, bold = true)
+    private val chipShape: GradientDrawable = Ui.rounded(Palette.faint(Tone.NOTICE), Ui.dp(context, 22))
     private val title = Ui.text(context, 46f, Palette.TEXT, bold = true)
+    private val tileRow: LinearLayout = Ui.row(context)
+    private val tiles = List(MAX_TILES) { index -> OfferTile(context, index + 1) { onOfferTapped(index) } }
+    private val hint = Ui.text(context, 18f, Palette.TEXT_SECONDARY)
     private val caption = Ui.text(context, 28f, Palette.TEXT_SECONDARY)
+
+    private val bottom: LinearLayout = Ui.row(context)
     private val state = Ui.text(context, 22f, Palette.WARM, bold = true)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
+    private val next = Ui.text(context, 20f, Palette.TEXT_SECONDARY)
     private val skip: TextView = Ui.button(context, "건너뛰기") { onSkip() }
-    private var bottom: View? = null
 
     /** Says how to get a hidden side panel back. Floats over the card's bottom edge while the panel is hidden. */
     private val panelHint = Ui.text(context, 16f, Palette.TEXT_SECONDARY)
 
-    private val parkedPanel: LinearLayout = Ui.column(context)
-    private val scores = Ui.text(context, 26f, Palette.TEXT, bold = true)
+    private val scoreboard = Scoreboard(context)
     private val strip = RouteStripView(context)
-
-    /** The scores and the shortcut buttons: side by side, or the buttons under the scores. */
-    private val parkedRow: LinearLayout = Ui.row(context)
-
-    /** The shortcut buttons, kept together so that [parkedRow] can move them as one. */
     private val shortcuts: LinearLayout = Ui.row(context)
+
+    /** The colour family the card has now; null until the first card is drawn. */
+    private var tone: Tone? = null
+
+    /** What [art] shows now, so that it is redrawn only when the picture or its colour changes. */
+    private var pictured: Pair<Illustration, Tone>? = null
+
+    /** The border is showing a light cue, and is not to be given the card's colour until it is over. */
+    private var flashing = false
 
     init {
         val pad = Ui.dp(context, 24)
         root.setBackgroundColor(Palette.BACKGROUND)
         root.setPadding(pad, pad, pad, pad)
 
+        // The card and, when ScreenFit puts it there, the scoreboard beside it.
+        val cardRow = Ui.row(context)
+        cardRow.isBaselineAligned = false
+        cardRow.addView(buildCard(), Ui.params(0, Ui.MATCH, 1f))
+        cardRow.addView(
+            scoreboard.panel,
+            Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SCOREBOARD_DP), Ui.MATCH), left = Ui.dp(context, ScreenFit.PARKED_GAP_DP))
+        )
+
+        val gap = Ui.dp(context, ScreenFit.PARKED_GAP_DP)
         column.addView(buildStatusRow(), Ui.params(Ui.MATCH, Ui.WRAP))
-        column.addView(buildCard(), Ui.margins(Ui.params(Ui.MATCH, 0, 1f), top = pad))
-        column.addView(buildParkedPanel(), Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = pad))
+        column.addView(cardRow, Ui.margins(Ui.params(Ui.MATCH, 0, 1f), top = pad))
+        column.addView(strip, Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, ScreenFit.ROUTE_STRIP_DP)), top = gap))
+        column.addView(scoreboard.line, Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, ScreenFit.SCORES_LINE_DP)), top = gap))
+        column.addView(buildShortcuts(), Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, ScreenFit.SHORTCUT_ROW_DP)), top = gap))
         root.addView(column, Ui.params(0, Ui.MATCH, 1f))
 
-        root.addView(sidePanel, Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP.toInt()), Ui.MATCH), left = pad))
+        root.addView(sidePanel, Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP), Ui.MATCH), left = pad))
         Ui.show(sidePanel, false)
-        Ui.show(parkedPanel, false)
         Ui.show(panelHint, false)
         destination.setOnLongClickListener {
             if (sidePanel.childCount > 0) setSidePanelVisible(true)
             onDestinationHeld()
             true
         }
+        tint(Tone.NOTICE, Illustration.ROAD)
+        apply(fit)
 
         // Rearranged after the layout pass that reported the new size, not in the middle of it.
         root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -118,16 +168,23 @@ class HostScreen(private val context: Context) {
         }
     }
 
-    /** Fits the screen to the window it has now. */
+    /**
+     * Fits the screen to the window it has now and to what is showing. Called whenever anything
+     * [ScreenFit] is asked about changes: the size, the side panel, the parked screen, the tiles.
+     */
     private fun arrange() {
-        if (root.width == 0 || root.height == 0) return
+        if (root.width == 0 || root.height == 0) {
+            // No size yet: the wide display's arrangement, but for what is showing now.
+            fit = ScreenFit.of(1408f, 700f, sidePanel = false, parked = parked, offers = offering)
+            apply(fit)
+            return
+        }
         val density = context.resources.displayMetrics.density
-        val next = ScreenFit.of(root.width / density, root.height / density, sidePanel.visibility == View.VISIBLE, parked)
-        val previous = fit
-        if (next == previous) return
+        val next = ScreenFit.of(root.width / density, root.height / density, sidePanel.visibility == View.VISIBLE, parked, offering)
+        val wasStacked = fit.stacked
         fit = next
 
-        if (previous?.stacked != next.stacked) {
+        if (wasStacked != next.stacked) {
             val pad = Ui.dp(context, 24)
             if (next.stacked) {
                 // Too narrow for the card and the side panel to sit side by side: card on top.
@@ -137,12 +194,10 @@ class HostScreen(private val context: Context) {
             } else {
                 root.orientation = LinearLayout.HORIZONTAL
                 column.layoutParams = Ui.params(0, Ui.MATCH, 1f)
-                sidePanel.layoutParams = Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP.toInt()), Ui.MATCH), left = pad)
+                sidePanel.layoutParams = Ui.margins(Ui.params(Ui.dp(context, ScreenFit.SIDE_PANEL_DP), Ui.MATCH), left = pad)
             }
         }
-        sizeCard(next)
-        if (previous?.shortcutsBelow != next.shortcutsBelow) arrangeParkedRow(next.shortcutsBelow)
-        Ui.show(strip, next.showRoute)
+        apply(next)
         root.requestLayout()
     }
 
@@ -150,10 +205,21 @@ class HostScreen(private val context: Context) {
     fun describe(): String {
         val density = context.resources.displayMetrics.density
         val size = "${(root.width / density).roundToInt()}×${(root.height / density).roundToInt()}dp · 밀도 $density"
-        val current = fit ?: return size
+        if (root.width == 0 || root.height == 0) return size
+        val current = fit
+        val tiles = when {
+            !offering -> ""
+            current.tiles == ScreenFit.TileStyle.FULL -> " · 타일 전체(이유 ${current.tileReasonLines}줄, 그림 ${current.tileIconDp.roundToInt()}dp)"
+            else -> " · 타일 이름만"
+        }
+        val scores = when {
+            !parked -> ""
+            current.scoresBeside -> " · 점수판 옆"
+            else -> " · 점수 한 줄"
+        }
         return size + " · " + (if (current.stacked) "위아래" else "나란히") + " · " +
             (if (current.compact) "작은 카드" else "큰 카드") + (if (current.narrow) " · 좁음" else "") + " · 자막 ${current.captionLines}줄" +
-            (if (current.shortcutsBelow) " · 버튼 아래 줄" else "")
+            (if (current.showArt) " · 그림" else "") + tiles + scores + (if (current.showRoute) " · 경로" else "")
     }
 
     private fun buildStatusRow(): View {
@@ -172,39 +238,50 @@ class HostScreen(private val context: Context) {
     }
 
     private fun buildCard(): View {
-        val pad = Ui.dp(context, 40)
         card.background = cardShape
-        card.setPadding(pad, pad, pad, pad)
-        card.setGravity(Gravity.CENTER_VERTICAL)
+        // A row lines its children up on their text's baseline unless told not to, and makes
+        // itself higher to do it. These rows hold boxes, and ScreenFit has counted their heights.
+        for (row in listOf(card, tileRow, bottom)) row.isBaselineAligned = false
 
-        title.maxLines = 2
+        chip.background = chipShape
+        chip.setPadding(Ui.dp(context, 16), Ui.dp(context, 6), Ui.dp(context, 16), Ui.dp(context, 6))
         title.ellipsize = TextUtils.TruncateAt.END
-        caption.maxLines = 3
         caption.ellipsize = TextUtils.TruncateAt.END
         // One line each, cut if need be: in a narrow window they would otherwise wrap and push
         // the caption out of the card.
-        for (label in listOf(kind, state)) {
+        for (label in listOf(chip, hint, state, next)) {
             label.maxLines = 1
             label.ellipsize = TextUtils.TruncateAt.END
         }
+        hint.text = CardText.CHOICE_HINT
         progress.max = 1000
-        progress.progressTintList = ColorStateList.valueOf(Palette.ACCENT)
         progress.progressBackgroundTintList = ColorStateList.valueOf(Palette.OUTLINE)
 
-        card.addView(kind, Ui.params(Ui.MATCH, Ui.WRAP))
-        card.addView(title, Ui.params(Ui.MATCH, Ui.WRAP))
-        card.addView(caption, Ui.params(Ui.MATCH, Ui.WRAP))
-
-        val bottom = Ui.row(context)
+        for ((index, tile) in tiles.withIndex()) {
+            tileRow.addView(tile.view, Ui.margins(Ui.params(0, Ui.MATCH, 1f), left = if (index == 0) 0 else Ui.dp(context, ScreenFit.TILE_GAP_DP)))
+        }
+        // The skip button stands on the same line as the foot of what is beside it.
+        bottom.setGravity(Gravity.BOTTOM)
         val meter = Ui.column(context)
         meter.addView(state, Ui.params(Ui.MATCH, Ui.WRAP))
         meter.addView(progress, Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, 10)), top = Ui.dp(context, 12)))
+        meter.addView(next, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 8)))
         bottom.addView(meter, Ui.params(0, Ui.WRAP, 1f))
         bottom.addView(skip, Ui.margins(Ui.params(Ui.WRAP, Ui.WRAP), left = Ui.dp(context, 32)))
-        card.addView(bottom, Ui.params(Ui.MATCH, Ui.WRAP))
-        this.bottom = bottom
-        // Until the window has a size, assume the wide display the card was drawn for.
-        sizeCard(ScreenFit(stacked = false, compact = false, narrow = false, captionLines = 3, showRoute = false, shortcutsBelow = false))
+
+        // What the card says is kept together in the middle of the card's height, with the
+        // picture beside it: in a card much higher than its text, a chip at the top edge and a
+        // skip button at the bottom one would be a long way from the title they belong to. The
+        // title or the tiles show, never both; `apply` sets the margins that depend on the card's size.
+        text.setGravity(Gravity.CENTER_VERTICAL)
+        text.addView(chip, Ui.params(Ui.WRAP, Ui.WRAP))
+        text.addView(title)
+        text.addView(tileRow, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 12)))
+        text.addView(hint, Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, 12)))
+        text.addView(caption)
+        text.addView(bottom)
+        card.addView(art)
+        card.addView(text)
 
         // The card sits in a frame so that the hint can float over its bottom margin without taking
         // any room from the card, which ScreenFit has already measured out.
@@ -220,19 +297,48 @@ class HostScreen(private val context: Context) {
         return frame
     }
 
+    /** The parked screen's buttons: one row, a third of the width each, as [ScreenFit.PARKED_SHORTCUTS] says. */
+    private fun buildShortcuts(): View {
+        val side = Ui.dp(context, 8)
+        shortcuts.isBaselineAligned = false
+        for ((index, shortcut) in ScreenFit.PARKED_SHORTCUTS.withIndex()) {
+            val button = Ui.button(context, shortcut.label, sizeSp = 20f, minHeightDp = 60) { onShortcut(shortcut.request) }
+            // Cut rather than wrapped in a window narrower than ScreenFit plans for: a second line
+            // would make the row taller than the room it has been given.
+            button.maxLines = 1
+            button.ellipsize = TextUtils.TruncateAt.END
+            // A third of the row with the label centred in it: wide side padding would only take the label's room.
+            button.setPadding(side, button.paddingTop, side, button.paddingBottom)
+            shortcuts.addView(button, Ui.margins(Ui.params(0, Ui.MATCH, 1f), left = if (index == 0) 0 else Ui.dp(context, ScreenFit.SHORTCUT_GAP_DP)))
+        }
+        return shortcuts
+    }
+
     /**
-     * The card at full size when it has the room, and at a smaller size when it does not: while
-     * parked, when it shares the screen with the parked panel, and in a narrow or short window.
+     * Lays the pieces out as [fit] says. The card is at full size when it has the room, and at a
+     * smaller size when it does not: while parked, when it holds the tiles, and in a narrow or
+     * short window.
      */
-    private fun sizeCard(fit: ScreenFit) {
+    private fun apply(fit: ScreenFit) {
         val compact = fit.compact
         val pad = Ui.dp(context, if (compact) 24 else 40)
         card.setPadding(pad, pad, pad, pad)
+
+        // The picture takes its share of the card, or goes and leaves the text the whole of it.
+        // The panel chooses its own height (see ArtPanel), so it is not told to fill the card's.
+        Ui.show(art, fit.showArt)
+        art.layoutParams = Ui.params(0, Ui.WRAP, fit.artShare)
+        text.layoutParams = Ui.margins(Ui.params(0, Ui.MATCH, 1f - fit.artShare), left = if (fit.showArt) Ui.dp(context, ScreenFit.ART_GAP_DP) else 0)
+
         title.textSize = if (compact) 34f else 46f
         // One line is enough for a title on a wide compact card; a narrow one needs the second.
         title.maxLines = if (compact && !fit.narrow) 1 else 2
+        title.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 8 else 16))
         caption.textSize = if (compact) 22f else 28f
         caption.maxLines = fit.captionLines
+        caption.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 10 else 20))
+        bottom.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 14 else 32))
+        for (tile in tiles) tile.arrange(fit)
 
         // The status row has four items and a narrow window has room for about two. The stop on
         // the route is the one to drop: the card says it when it matters.
@@ -240,51 +346,13 @@ class HostScreen(private val context: Context) {
         destination.textSize = if (fit.narrow) 18f else 22f
         trip.textSize = if (fit.narrow) 16f else 20f
         battery.textSize = if (fit.narrow) 16f else 20f
-        title.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 8 else 16))
-        caption.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 10 else 20))
-        bottom?.layoutParams = Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = Ui.dp(context, if (compact) 14 else 32))
-    }
 
-    private fun buildParkedPanel(): View {
-        val pad = Ui.dp(context, 16)
-        parkedPanel.background = Ui.rounded(Palette.SURFACE, Ui.dp(context, 28), Palette.OUTLINE, Ui.dp(context, 2))
-        parkedPanel.setPadding(pad, pad, pad, pad)
-
-        for (shortcut in ScreenFit.PARKED_SHORTCUTS) {
-            val button = Ui.button(context, shortcut.label, sizeSp = 20f, minHeightDp = 60) { onShortcut(shortcut.request) }
-            // Cut rather than wrapped in a window narrower than ScreenFit plans for: a second line
-            // would make the panel taller than the room it has been given.
-            button.maxLines = 1
-            button.ellipsize = TextUtils.TruncateAt.END
-            shortcuts.addView(button)
-        }
-        parkedRow.addView(scores)
-        parkedRow.addView(shortcuts)
-        // Until the window has a size, assume the wide display, as the card does.
-        arrangeParkedRow(below = false)
-        parkedPanel.addView(parkedRow, Ui.params(Ui.MATCH, Ui.WRAP))
-        parkedPanel.addView(strip, Ui.margins(Ui.params(Ui.MATCH, Ui.dp(context, 84)), top = Ui.dp(context, 8)))
-        return parkedPanel
-    }
-
-    /**
-     * The shortcut buttons beside the scores or, when [ScreenFit] finds the card too narrow for one
-     * row, on a row of their own under the scores, where they share the width equally.
-     */
-    private fun arrangeParkedRow(below: Boolean) {
-        val gap = Ui.dp(context, if (below) 12 else 16)
-        parkedRow.orientation = if (below) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-        scores.layoutParams = Ui.margins(if (below) Ui.params(Ui.MATCH, Ui.WRAP) else Ui.params(0, Ui.WRAP, 1f), left = Ui.dp(context, 12))
-        shortcuts.layoutParams = if (below) Ui.margins(Ui.params(Ui.MATCH, Ui.WRAP), top = gap) else Ui.params(Ui.WRAP, Ui.WRAP)
-        // Under the scores each button is a third of the row with its label centred in it, so the
-        // wide side padding that sizes the buttons beside the scores would only take the label's room.
-        val side = Ui.dp(context, if (below) 8 else 28)
-        for (i in 0 until shortcuts.childCount) {
-            val button = shortcuts.getChildAt(i)
-            val left = if (below && i == 0) 0 else gap
-            button.layoutParams = Ui.margins(if (below) Ui.params(0, Ui.WRAP, 1f) else Ui.params(Ui.WRAP, Ui.WRAP), left = left)
-            button.setPadding(side, button.paddingTop, side, button.paddingBottom)
-        }
+        // The parked screen: the scores beside the card or on a line of their own, the route
+        // when there is room for it, and the buttons.
+        Ui.show(scoreboard.panel, parked && fit.scoresBeside)
+        Ui.show(scoreboard.line, parked && !fit.scoresBeside)
+        Ui.show(strip, fit.showRoute)
+        Ui.show(shortcuts, parked)
     }
 
     /**
@@ -307,61 +375,118 @@ class HostScreen(private val context: Context) {
         arrange()
     }
 
-    /** The parked-only panel. The host turns it on when the car is parked and off before it moves. */
+    /** The parked-only screen. The host turns it on when the car is parked and off before it moves. */
     fun setExpanded(enabled: Boolean) {
         parked = enabled
-        Ui.show(parkedPanel, enabled)
         arrange()
     }
 
-    /** Stands in for the cabin's ambient light on a build that has none: the card border flashes. */
+    /**
+     * Stands in for the cabin's ambient light on a build that has none: the card border flashes,
+     * and then goes back to the colour of whatever the card shows by then.
+     */
     fun flash(cue: LightCue) {
         val color = if (cue == LightCue.CORRECT_ANSWER) Palette.GOOD else Palette.WARM
+        flashing = true
         cardShape.setStroke(Ui.dp(context, 6), color)
         main.removeCallbacksAndMessages(FLASH)
-        main.postAtTime({ cardShape.setStroke(Ui.dp(context, 2), Palette.OUTLINE) }, FLASH, android.os.SystemClock.uptimeMillis() + 1400)
+        main.postAtTime({
+            flashing = false
+            cardShape.setStroke(Ui.dp(context, 2), Palette.tone(tone ?: Tone.NOTICE))
+        }, FLASH, android.os.SystemClock.uptimeMillis() + 1400)
+    }
+
+    /**
+     * Gives the card the colour of [tone] (its border, the chip, the progress bar) and puts
+     * [illustration] in that colour on the illustration panel.
+     */
+    private fun tint(tone: Tone, illustration: Illustration) {
+        val color = Palette.tone(tone)
+        if (tone != this.tone) {
+            this.tone = tone
+            if (!flashing) cardShape.setStroke(Ui.dp(context, 2), color)
+            chip.setTextColor(color)
+            chipShape.setColor(Palette.faint(tone))
+            progress.progressTintList = ColorStateList.valueOf(color)
+        }
+        val wanted = illustration to tone
+        if (wanted != pictured) {
+            pictured = wanted
+            val layers = LayerDrawable(arrayOf(Ui.rounded(Palette.faint(tone), Ui.dp(context, 20)), IllustrationDrawable(illustration, color)))
+            val inset = Ui.dp(context, 20)
+            layers.setLayerInset(1, inset, inset, inset, inset)
+            art.background = layers
+        }
     }
 
     fun render(snapshot: HostSnapshot) {
         last = snapshot
 
-        destination.text = when (snapshot.phase) {
-            Phase.ARRIVED -> "${snapshot.destinationName} 도착"
-            else -> "${snapshot.destinationName} · ${Math.round(snapshot.remainingKm)}km"
-        }
-        trip.text = "주행 ${duration(snapshot.tripMinutes)}"
+        Ui.write(
+            destination,
+            when (snapshot.phase) {
+                Phase.ARRIVED -> "${snapshot.destinationName} 도착"
+                else -> "${snapshot.destinationName} · ${Math.round(snapshot.remainingKm)}km"
+            }
+        )
+        Ui.write(trip, "주행 ${duration(snapshot.tripMinutes)}")
         val percent = snapshot.batteryPercent
-        battery.text = when {
-            percent == null -> ""
-            snapshot.charging -> "배터리 $percent% · 충전 중"
-            else -> "배터리 $percent%"
-        }
-        waypoint.text = snapshot.waypointName?.let { "경유지 $it" } ?: ""
+        Ui.write(
+            battery,
+            when {
+                percent == null -> ""
+                snapshot.charging -> "배터리 $percent% · 충전 중"
+                else -> "배터리 $percent%"
+            }
+        )
+        Ui.write(waypoint, snapshot.waypointName?.let { "경유지 $it" } ?: "")
 
+        // The tiles need another arrangement than the card they replace, so ScreenFit is asked again.
+        val spots = snapshot.offers.take(tiles.size)
+        if (spots.isNotEmpty() != offering) {
+            offering = spots.isNotEmpty()
+            arrange()
+        }
+
+        // The idle card, with nothing being said, is the app's own: neutral, with the road on it.
         val now = snapshot.card
-        if (now != null) {
-            kind.text = if (now.subtitle.isBlank()) now.kind.label else "${now.kind.label} · ${now.subtitle}"
-            title.text = now.title
-            caption.text = if (captions) now.caption else ""
-            progress.progress = (now.progress * 1000).toInt()
-        } else {
-            kind.text = "길동무"
-            title.text = idleTitle(snapshot)
-            caption.text = ""
-            progress.progress = 0
-        }
+        val shownTone = now?.tone ?: Tone.NOTICE
+        tint(shownTone, now?.illustration ?: Illustration.ROAD)
+        Ui.write(chip, CardText.chip(snapshot))
+        Ui.write(title, now?.title ?: idleTitle(snapshot))
+        Ui.write(caption, if (captions) now?.caption.orEmpty() else "")
+        progress.progress = ((now?.progress ?: 0f) * 1000).toInt()
+
+        Ui.show(title, !offering)
+        Ui.show(tileRow, offering)
+        // How to choose is said only where choosing does something.
+        Ui.show(hint, offering && snapshot.choosable)
         Ui.show(caption, captions && now != null)
-        Ui.show(progress, now != null)
-        Ui.show(skip, now != null)
+        // Blanked, not removed, so that the bottom row keeps its height and the title above it its place.
+        Ui.keep(progress, now != null)
+        Ui.keep(skip, now != null)
+        Ui.write(next, snapshot.nextLine.orEmpty())
+        // The recommendation card has no "다음" line: the tiles are what is next.
+        if (offering) Ui.show(next, false) else Ui.keep(next, snapshot.nextLine != null)
 
-        state.text = when {
-            snapshot.listening != null -> "듣고 있어요"
-            snapshot.holding -> "내비 안내 중 · 잠시 멈춤"
-            snapshot.quiet -> "조용히 가는 중"
-            else -> ""
+        for ((index, tile) in tiles.withIndex()) {
+            val spot = spots.getOrNull(index)
+            Ui.show(tile.view, spot != null)
+            // A tile is a button only while parked: while the car moves the skip button is the one touch control.
+            if (spot != null) tile.show(spot, shownTone, tappable = snapshot.parked && snapshot.choosable)
         }
 
-        scores.text = snapshot.scores.joinToString("   ") { "${it.player} ${it.score}점" }
+        Ui.write(
+            state,
+            when {
+                snapshot.listening != null -> "듣고 있어요"
+                snapshot.holding -> "내비 안내 중 · 잠시 멈춤"
+                snapshot.quiet -> "조용히 가는 중"
+                else -> ""
+            }
+        )
+
+        scoreboard.update(snapshot.scores)
         strip.update(snapshot.places, snapshot.progressKm + snapshot.remainingKm, snapshot.progressKm)
     }
 
@@ -383,5 +508,21 @@ class HostScreen(private val context: Context) {
         val FLASH = Any()
 
         const val PANEL_HINT = "화면을 눌러 패널 띄우기"
+
+        /** The host recommends at most three spots at a time, and three tiles are what a card holds side by side. */
+        const val MAX_TILES = 3
+    }
+}
+
+/**
+ * The panel the card's picture is drawn on. It is as high as the card lets it be, but never much
+ * higher than it is wide (`ScreenFit.artHeight`): in a card far higher than its text needs, a
+ * panel of the card's full height would be a stripe with the picture lost in the middle of it.
+ */
+private class ArtPanel(context: Context) : View(context) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        val room = MeasureSpec.getSize(heightMeasureSpec)
+        setMeasuredDimension(width, ScreenFit.artHeight(width.toFloat(), room.toFloat()).toInt())
     }
 }

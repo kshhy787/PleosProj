@@ -98,6 +98,65 @@ class RoutePackageParserTest {
     }
 
     @Test
+    fun readsThePictureAPlaceOrASpotPicks() {
+        val pkg = RoutePackageParser.parse(
+            withSpots(", \"illustration\": \"sea\"").replace("\"id\": \"p\",", "\"id\": \"p\", \"illustration\": \"flower\",")
+        )
+        assertEquals(Illustration.FLOWER, pkg.pois.single().illustration)
+        assertEquals("Only the spot that picks one has one", listOf(Illustration.SEA, null, null), pkg.spots.map { it.illustration })
+        assertEquals("The key is optional", null, RoutePackageParser.parse(minimal).pois.single().illustration)
+    }
+
+    @Test
+    fun aPictureThisAppDoesNotKnowReadsAsNoneSoANewerPackageStillLoads() {
+        val newer = withSpots(", \"illustration\": \"lighthouse\"").replace("\"id\": \"p\",", "\"id\": \"p\", \"illustration\": \"Flower\",")
+        val pkg = RoutePackageParser.parse(newer)
+        assertEquals(null, pkg.pois.single().illustration)
+        assertEquals(listOf<Illustration?>(null, null, null), pkg.spots.map { it.illustration })
+        assertEquals("The rest of the spot is read as usual", "두부마을", pkg.spots.first().name)
+    }
+
+    @Test
+    fun everyPictureHasAKeyOfItsOwn() {
+        for (picture in Illustration.entries) assertEquals(picture, Illustration.of(picture.key))
+        assertEquals(
+            listOf("mountains", "bowl", "landmark", "star", "cup", "road", "sea", "flower", "pottery", "wheel", "coffee"),
+            Illustration.entries.map { it.key }
+        )
+        assertEquals(null, Illustration.of(null))
+        assertEquals(null, Illustration.of(""))
+        assertEquals("Keys are written exactly", null, Illustration.of("SEA"))
+    }
+
+    /** Every `"illustration": "…"` in [json], as written: the parser turns a key it does not know into null. */
+    private fun illustrationKeys(json: String) = Regex("\"illustration\"\\s*:\\s*\"([^\"]*)\"").findAll(json).map { it.groupValues[1] }.toList()
+
+    @Test
+    fun theBundledPicturesAreOnesThisAppDraws() {
+        // An unknown key would load without complaint and show the picture of the kind instead,
+        // so a typing mistake in the bundled package has to be caught here.
+        val written = illustrationKeys(bundled())
+        assertEquals("Seven places and two spots pick a picture", 9, written.size)
+        for (key in written + illustrationKeys(fromPipeline())) {
+            assertTrue("\"$key\" is not a picture this app draws", Illustration.of(key) != null)
+        }
+
+        val pkg = RoutePackageParser.parse(bundled())
+        assertEquals(
+            mapOf(
+                "everland" to Illustration.WHEEL, "icheon" to Illustration.POTTERY, "yeongneung" to Illustration.LANDMARK,
+                "chiaksan" to Illustration.MOUNTAINS, "bongpyeong" to Illustration.FLOWER, "daegwallyeong" to Illustration.MOUNTAINS,
+                "ojukheon" to Illustration.LANDMARK
+            ),
+            pkg.pois.associate { it.id to it.illustration }
+        )
+        assertEquals(
+            mapOf("sight-gyeongpoho" to Illustration.SEA, "cafe-anmok" to Illustration.COFFEE),
+            pkg.spots.filter { it.illustration != null }.associate { it.id to it.illustration }
+        )
+    }
+
+    @Test
     fun theBundledPackageIsValidAndInRouteOrder() {
         val pkg = RoutePackageParser.parse(bundled())
         assertEquals("seoul-gangneung", pkg.id)

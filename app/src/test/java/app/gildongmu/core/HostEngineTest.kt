@@ -487,7 +487,7 @@ class HostEngineTest {
         h.finishSpeaking()
         h.assertSaid("아쉬워요. 정답은 832예요.")
         h.assertSaid("퀴즈 끝! 지금까지 첫째 1점, 둘째 0점이에요.")
-        assertEquals(listOf(PlayerScore("첫째", 1), PlayerScore("둘째", 0)), h.engine.snapshot().scores)
+        assertEquals(listOf(PlayerScore("첫째", 1, leader = true), PlayerScore("둘째", 0, leader = false)), h.engine.snapshot().scores)
         assertEquals("Exactly one correct answer", 1, h.count<Action.Light>())
     }
 
@@ -708,6 +708,209 @@ class HostEngineTest {
         h.send(Signal.Trip(minutes = 121.0)) // keeps the host busy with a suggestion, not the next story
         h.jump(57.0)
         assertEquals("A place the car went past untold is marked as passed", PlaceState.PASSED, h.engine.snapshot().places.first { it.id == "b" }.state)
+    }
+
+    @Test
+    fun everyKindOfCardHasItsColourFamilyAndItsPicture() {
+        val expected = mapOf(
+            SegmentKind.BRIEFING to (Tone.NOTICE to Illustration.ROAD),
+            SegmentKind.STORY to (Tone.STORY to Illustration.MOUNTAINS),
+            SegmentKind.QUIZ to (Tone.GAME to Illustration.STAR),
+            SegmentKind.STOP_SUGGESTION to (Tone.STOP to Illustration.CUP),
+            SegmentKind.REST to (Tone.STOP to Illustration.CUP),
+            SegmentKind.WRAP_UP to (Tone.NOTICE to Illustration.ROAD),
+            SegmentKind.NOTICE to (Tone.NOTICE to Illustration.ROAD),
+            SegmentKind.RECOMMENDATION to (Tone.FOOD to Illustration.BOWL),
+            SegmentKind.GAME to (Tone.GAME to Illustration.STAR)
+        )
+        assertEquals("A new kind of card needs a line here", SegmentKind.entries.toSet(), expected.keys)
+        for ((kind, look) in expected) {
+            val card = Card(kind, "제목", "", "문장.", 1f)
+            assertEquals("$kind", look, card.tone to card.illustration)
+        }
+        assertEquals(
+            mapOf(SpotCategory.FOOD to Illustration.BOWL, SpotCategory.SIGHT to Illustration.LANDMARK, SpotCategory.CAFE to Illustration.COFFEE),
+            SpotCategory.entries.associateWith { it.illustration }
+        )
+        // A card's colour follows its kind, whatever its picture.
+        assertEquals(Tone.STORY, Card(SegmentKind.STORY, "제목", "", "문장.", 1f, Illustration.SEA).tone)
+    }
+
+    /** The pictures on the cards of a story and of a question about its place: asked, waited for, answered. */
+    private fun storyAndQuizPictures(pkg: RoutePackage): List<Illustration> {
+        val seen = ArrayList<Illustration>()
+        val h = Harness(pkg)
+        h.startTrip()
+        h.drive(16.2)
+        assertEquals(SegmentKind.STORY, h.engine.snapshot().card?.kind)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        h.say("퀴즈 하자")
+        while (h.speaking?.text != "가나 문제 하나?") assertTrue("The quiz should start: ${h.spoken}", h.finishSentence())
+        seen.add(h.engine.snapshot().card!!.illustration)
+        h.finishSpeaking()
+        assertEquals(ListenMode.QUIZ_ANSWER, h.engine.snapshot().listening)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        h.say("사과")
+        assertEquals("정답!", h.engine.snapshot().card?.title)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        return seen
+    }
+
+    @Test
+    fun aStoryAndAQuestionAboutAPlaceShowThePictureThePlacePicks() {
+        val flower = Illustration.FLOWER
+        assertEquals(listOf(flower, flower, flower, flower), storyAndQuizPictures(Fixtures.route(pictures = mapOf("a" to flower))))
+        assertEquals(
+            "A place that picks none has the picture of the card's kind",
+            listOf(Illustration.MOUNTAINS, Illustration.STAR, Illustration.STAR, Illustration.STAR),
+            storyAndQuizPictures(Fixtures.route())
+        )
+        assertEquals(
+            "Another place's picture is not this one's",
+            listOf(Illustration.MOUNTAINS, Illustration.STAR, Illustration.STAR, Illustration.STAR),
+            storyAndQuizPictures(Fixtures.route(pictures = mapOf("b" to flower)))
+        )
+    }
+
+    @Test
+    fun aStoryAskedForAheadOfItsPlaceShowsThatPlacesPictureToo() {
+        val h = Harness(Fixtures.route(pictures = mapOf("a" to Illustration.FLOWER)))
+        h.startTrip()
+        h.drive(5.0)
+        h.say("이야기해 줘")
+        assertEquals("조금 있으면 지나갈 가나 이야기예요.", h.speaking?.text)
+        assertEquals(Illustration.FLOWER, h.engine.snapshot().card?.illustration)
+    }
+
+    @Test
+    fun aQuestionAboutNoPlaceKeepsTheQuizPicture() {
+        val general = QuizQuestion("g1", "일반 문제 하나?", listOf("하늘"), "설명 g1.")
+        val h = Harness(Fixtures.route(generalQuiz = listOf(general), pictures = mapOf("a" to Illustration.FLOWER)))
+        h.startTrip()
+        h.jump(5.0)
+        h.say("퀴즈 하자") // no story told yet, so only the route's own question can be asked
+        h.finishSpeaking()
+        assertEquals("일반 문제 하나?", h.spoken.last())
+        assertEquals(Illustration.STAR, h.engine.snapshot().card?.illustration)
+    }
+
+    /** The pictures on the rest cards about the next place: the offer, the wait for an answer, the story. */
+    private fun restPictures(pkg: RoutePackage): List<Illustration> {
+        val seen = ArrayList<Illustration>()
+        val h = Harness(pkg)
+        h.startTrip()
+        h.jump(30.0)
+        h.send(Signal.Parked(true))
+        h.idle(HostConfig().restSettleMs)
+        assertEquals("잠깐 쉬어 가요.", h.speaking?.text)
+        assertEquals(SegmentKind.REST, h.engine.snapshot().card?.kind)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        h.finishSpeaking()
+        assertEquals(ListenMode.YES_NO, h.engine.snapshot().listening)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        h.say("응")
+        assertEquals("다라 긴 이야기 하나.", h.speaking?.text)
+        assertEquals(SegmentKind.REST, h.engine.snapshot().card?.kind)
+        seen.add(h.engine.snapshot().card!!.illustration)
+        return seen
+    }
+
+    @Test
+    fun aRestCardAboutAPlaceShowsThePictureThePlacePicks() {
+        val pottery = Illustration.POTTERY
+        assertEquals(listOf(pottery, pottery, pottery), restPictures(Fixtures.route(pictures = mapOf("b" to pottery))))
+        assertEquals(
+            "A place that picks none has the cup of a rest card",
+            listOf(Illustration.CUP, Illustration.CUP, Illustration.CUP),
+            restPictures(Fixtures.route())
+        )
+    }
+
+    @Test
+    fun cardsAboutTheTripItselfNeverShowAPlacesPicture() {
+        val everywhere = mapOf("a" to Illustration.FLOWER, "b" to Illustration.FLOWER, "c" to Illustration.FLOWER)
+        val h = Harness(Fixtures.route(pictures = everywhere))
+        h.send(Signal.Parked(false))
+        h.send(Signal.Location(Fixtures.at(0.0), 90.0))
+        h.send(Signal.RouteStarted())
+        assertEquals(SegmentKind.BRIEFING to Illustration.ROAD, h.engine.snapshot().card!!.let { it.kind to it.illustration })
+        h.finishSpeaking()
+
+        h.jump(22.0)
+        h.send(Signal.SkipPressed)
+        h.send(Signal.Trip(minutes = 121.0))
+        assertEquals(SegmentKind.STOP_SUGGESTION to Illustration.CUP, h.engine.snapshot().card!!.let { it.kind to it.illustration })
+        h.finishSpeaking()
+        assertEquals("While it waits for the answer too", Illustration.CUP, h.engine.snapshot().card?.illustration)
+        h.say("응")
+        assertEquals(SegmentKind.NOTICE to Illustration.ROAD, h.engine.snapshot().card!!.let { it.kind to it.illustration })
+
+        h.send(Signal.DestinationArrived)
+        assertEquals(SegmentKind.WRAP_UP to Illustration.ROAD, h.engine.snapshot().card!!.let { it.kind to it.illustration })
+    }
+
+    @Test
+    fun aRecommendationCardShowsThePictureOfWhatItsSpotsOffer() {
+        val spots = listOf(
+            Fixtures.spot("f1", "해돋이식당", 35.0),
+            Fixtures.spot("f2", "달맞이분식", 45.0),
+            // A spot's own picture is for its tile; the card is about all the spots on it.
+            Fixtures.spot("v1", "경포호", 40.0, SpotCategory.SIGHT, illustration = Illustration.SEA),
+            Fixtures.spot("v2", "경포대", 45.0, SpotCategory.SIGHT),
+            Fixtures.spot("c1", "바다다방", 40.0, SpotCategory.CAFE),
+            Fixtures.spot("c2", "솔밭다방", 45.0, SpotCategory.CAFE)
+        )
+        val asked = listOf("뭐 먹지" to Illustration.BOWL, "볼 거 있어?" to Illustration.LANDMARK, "커피 마시고 싶어" to Illustration.COFFEE)
+        for ((said, picture) in asked) {
+            val h = tripWith(spots)
+            h.say(said)
+            assertEquals(said, SegmentKind.RECOMMENDATION to picture, h.engine.snapshot().card!!.let { it.kind to it.illustration })
+            h.finishSpeaking()
+            assertEquals(said, ListenMode.CHOICE, h.engine.snapshot().listening)
+            assertEquals("$said, while the passengers decide", picture, h.engine.snapshot().card?.illustration)
+        }
+        val h = tripWith(spots)
+        h.say("볼 거 있어?")
+        assertEquals("The screen gets each spot's own picture for its tile", listOf(Illustration.SEA, null), h.engine.snapshot().offers.map { it.illustration })
+    }
+
+    @Test
+    fun theLeadersAreEveryoneOnTheHighestScoreOnceSomebodyHasScored() {
+        val h = Harness()
+        h.startTrip()
+        fun leaders() = h.engine.snapshot().scores.filter { it.leader }.map { it.player }
+        assertEquals("Level at zero, nobody leads", emptyList<String>(), leaders())
+
+        h.drive(16.2)
+        h.say("퀴즈")
+        h.finishSpeaking()
+        h.say("사과")
+        assertEquals(listOf("첫째"), leaders())
+        h.finishSpeaking()
+        h.say("832미터")
+        assertEquals("A tie has two leaders", listOf("첫째", "둘째"), leaders())
+    }
+
+    @Test
+    fun theNextLineNamesThePlaceAfterWhatIsBeingSaidOrAsked() {
+        val h = Harness()
+        h.startTrip()
+        val idle = h.engine.snapshot()
+        assertEquals("가나 · 20km", idle.upNext)
+        assertNull("The idle card names the next place itself", idle.nextLine)
+
+        h.drive(16.2) // the story of 가나 is being told; 다라 is next
+        assertEquals("다음 · 다라 · 34km", h.engine.snapshot().nextLine)
+        h.say("퀴즈")
+        h.finishSpeaking()
+        assertEquals(ListenMode.QUIZ_ANSWER, h.engine.snapshot().listening)
+        assertEquals("While a question waits for its answer too", "다음 · 다라 · 34km", h.engine.snapshot().nextLine)
+
+        h.send(Signal.SkipPressed)
+        h.jump(95.0)
+        h.say("얘기해 줘")
+        assertEquals("준비한 이야기는 모두 들려드렸어요.", h.speaking?.text)
+        assertNull("No place is left to name", h.engine.snapshot().nextLine)
     }
 
     // ---- somewhere to eat or to see ----
@@ -1320,6 +1523,154 @@ class HostEngineTest {
         assertEquals(0, arrived.count<Action.AddWaypoint>())
     }
 
+    // ---- a touch on a recommended spot ----
+
+    /** Parked at 5 km on a road with [spots], with somewhere to eat just asked for: the host starts on the list. */
+    private fun parkedAndHungry(spots: List<Spot> = restaurants): Harness {
+        val h = tripWith(spots)
+        h.send(Signal.Parked(true))
+        h.say("뭐 먹지")
+        assertTrue("The list should be on the screen", h.engine.snapshot().offers.isNotEmpty())
+        return h
+    }
+
+    @Test
+    fun whileParkedATouchChoosesASpotWithoutWaitingForTheListToEnd() {
+        val h = parkedAndHungry()
+        h.finishSentence()
+        h.finishSentence() // the host has only got as far as the first spot
+        h.send(Signal.OfferTapped(1))
+        assertEquals("The reading stops", 1, h.count<Action.StopSpeaking>())
+        assertEquals(restaurants[1].toWaypoint(), h.last<Action.AddWaypoint>()?.waypoint)
+        assertEquals("네, 달맞이분식을 경유지로 추가했어요.", h.speaking?.text)
+        val after = h.engine.snapshot()
+        assertEquals("달맞이분식", after.waypointName)
+        assertEquals(emptyList<Spot>(), after.offers)
+
+        h.finishSentence()
+        assertEquals("The question is never asked", 0, h.actions.count { it is Action.Listen && it.mode == ListenMode.CHOICE })
+        h.assertNeverSaid("가고 싶은 곳이 있으면")
+        h.send(Signal.OfferTapped(1))
+        assertEquals("A second touch has nothing to choose", 1, h.count<Action.AddWaypoint>())
+    }
+
+    @Test
+    fun whileParkedATouchAnswersTheQuestionAsNamingTheSpotWould() {
+        val named = parkedAndHungry()
+        named.finishSpeaking()
+        named.say("세 번째")
+
+        val touched = parkedAndHungry()
+        touched.finishSpeaking()
+        assertEquals(ListenMode.CHOICE, touched.engine.snapshot().listening)
+        touched.send(Signal.OfferTapped(2))
+
+        assertEquals(restaurants[2].toWaypoint(), touched.last<Action.AddWaypoint>()?.waypoint)
+        assertEquals("The host stops listening", 1, touched.count<Action.CancelListen>())
+        assertEquals("Nothing was being said", 0, touched.count<Action.StopSpeaking>())
+        assertEquals("네, 별빛국수를 경유지로 추가했어요.", touched.speaking?.text)
+        assertNull(touched.engine.snapshot().listening)
+        assertEquals("Exactly what naming it does", named.actions, touched.actions)
+    }
+
+    @Test
+    fun whileTheCarMovesATouchOnASpotDoesNothing() {
+        val h = tripWith(restaurants)
+        h.say("뭐 먹지")
+        h.finishSentence()
+        val reading = h.speaking
+        assertEquals("During the reading", emptyList<Action>(), h.send(Signal.OfferTapped(0)))
+        assertEquals(reading, h.speaking)
+
+        h.finishSpeaking()
+        assertEquals("During the wait for the choice", emptyList<Action>(), h.send(Signal.OfferTapped(0)))
+        assertEquals(ListenMode.CHOICE, h.engine.snapshot().listening)
+        assertEquals(restaurants.take(3), h.engine.snapshot().offers)
+        assertEquals(0, h.count<Action.AddWaypoint>())
+
+        h.say("첫 번째") // and the choice is still open to a voice
+        assertEquals(restaurants[0].toWaypoint(), h.last<Action.AddWaypoint>()?.waypoint)
+    }
+
+    @Test
+    fun aTouchOnASpotThatIsNotThereDoesNothing() {
+        // Two spots on the screen: there is no third tile, and none before the first.
+        val two = parkedAndHungry(restaurants.take(2))
+        for (index in listOf(2, 3, -1)) assertEquals("Reading, $index", emptyList<Action>(), two.send(Signal.OfferTapped(index)))
+        two.finishSpeaking()
+        for (index in listOf(2, 3, -1)) assertEquals("Waiting, $index", emptyList<Action>(), two.send(Signal.OfferTapped(index)))
+        assertEquals("The choice is still open", ListenMode.CHOICE, two.engine.snapshot().listening)
+
+        // Nothing offered: parked with nothing on the card, then with a story offered.
+        val h = Harness(Fixtures.route(spots = restaurants))
+        h.startTrip()
+        h.jump(30.0)
+        h.send(Signal.Parked(true))
+        assertEquals("Nothing on the card", emptyList<Action>(), h.send(Signal.OfferTapped(0)))
+        h.idle(HostConfig().restSettleMs)
+        assertEquals("잠깐 쉬어 가요.", h.speaking?.text)
+        assertEquals("A card without spots", emptyList<Action>(), h.send(Signal.OfferTapped(0)))
+        h.finishSpeaking()
+        assertEquals(ListenMode.YES_NO, h.engine.snapshot().listening)
+        assertEquals("A question that is not about spots", emptyList<Action>(), h.send(Signal.OfferTapped(0)))
+        assertEquals(0, h.count<Action.AddWaypoint>())
+    }
+
+    @Test
+    fun aTouchOnASpotThatIsOnlyDescribedChoosesNothing() {
+        // After arrival there is no route left to add a waypoint to.
+        val arrived = Harness(Fixtures.route(spots = restaurants + atTheDestination))
+        arrived.startTrip()
+        arrived.send(Signal.Parked(true))
+        arrived.send(Signal.DestinationArrived)
+        arrived.finishSpeaking()
+        arrived.say("뭐 먹지")
+        assertEquals(listOf(atTheDestination[0]), arrived.engine.snapshot().offers)
+        assertEquals(emptyList<Action>(), arrived.send(Signal.OfferTapped(0)))
+        assertEquals("도착지 근처에 먹을 만한 곳이 한 군데 있어요.", arrived.speaking?.text)
+
+        // The destination tip asks nothing, so naming its spot chooses nothing, and neither does a touch.
+        val tipped = Harness(Fixtures.route(spots = atTheDestination))
+        tipped.startTrip()
+        tipped.jump(60.0)
+        tipped.drive(70.1)
+        assertEquals("도착해서 들러 볼 만한 노을식당은 노을식당 이유예요.", tipped.speaking?.text)
+        tipped.send(Signal.Parked(true)) // pulled over while the tip is still being said
+        assertEquals(listOf(atTheDestination[0]), tipped.engine.snapshot().offers)
+        assertEquals(emptyList<Action>(), tipped.send(Signal.OfferTapped(0)))
+        assertEquals("도착해서 들러 볼 만한 노을식당은 노을식당 이유예요.", tipped.speaking?.text)
+        assertEquals(0, tipped.count<Action.AddWaypoint>())
+    }
+
+    @Test
+    fun theScreenIsToldWhetherAnOfferedSpotCanBeChosen() {
+        // A screen shows how to choose, and makes its tiles buttons, only where a choice is acted on.
+        val h = tripWith(restaurants)
+        assertFalse("Nothing on offer", h.engine.snapshot().choosable)
+        h.say("뭐 먹지")
+        assertTrue("While the list is read out", h.engine.snapshot().choosable)
+        h.finishSpeaking()
+        assertEquals(ListenMode.CHOICE, h.engine.snapshot().listening)
+        assertTrue("While the host waits for the choice", h.engine.snapshot().choosable)
+        h.say("첫 번째")
+        assertFalse("Chosen", h.engine.snapshot().choosable)
+
+        val arrived = Harness(Fixtures.route(spots = restaurants + atTheDestination))
+        arrived.startTrip()
+        arrived.send(Signal.DestinationArrived)
+        arrived.finishSpeaking()
+        arrived.say("뭐 먹지")
+        assertEquals(listOf(atTheDestination[0]), arrived.engine.snapshot().offers)
+        assertFalse("After arrival spots are only described", arrived.engine.snapshot().choosable)
+
+        val tipped = Harness(Fixtures.route(spots = atTheDestination))
+        tipped.startTrip()
+        tipped.jump(60.0)
+        tipped.drive(70.1)
+        assertEquals(listOf(atTheDestination[0]), tipped.engine.snapshot().offers)
+        assertFalse("The destination tip asks nothing", tipped.engine.snapshot().choosable)
+    }
+
     // ---- a tip about the destination ----
 
     /** Spots at the destination: a restaurant, a lighthouse and, nearest of all, a cafe. */
@@ -1581,7 +1932,7 @@ class HostEngineTest {
         h.assertSaid("시간이 다 됐어요. 정답은 킹콩이에요.")
         assertEquals("수수께끼 끝! 지금까지 첫째 1점, 둘째 0점이에요.", h.spoken.last())
         h.assertNeverSaid("수수께끼 넷?")
-        assertEquals(listOf(PlayerScore("첫째", 1), PlayerScore("둘째", 0)), h.engine.snapshot().scores)
+        assertEquals(listOf(PlayerScore("첫째", 1, leader = true), PlayerScore("둘째", 0, leader = false)), h.engine.snapshot().scores)
     }
 
     @Test

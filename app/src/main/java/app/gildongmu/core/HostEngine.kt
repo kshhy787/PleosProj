@@ -80,6 +80,13 @@ class HostEngine(
         val sentences: List<String>,
         /** The spots these sentences recommend, for the screen. */
         val offers: List<Spot> = emptyList(),
+        /**
+         * Whether one of [offers] can be chosen: true for a list that ends in "which one?", false
+         * for spots that are only described (the destination tip, and anything after arrival).
+         */
+        val choosable: Boolean = false,
+        /** The picture of the place these sentences are about, when its package picks one. */
+        val picture: Illustration? = null,
         val onDone: (MutableList<Action>) -> Unit
     ) {
         var index = 0
@@ -90,11 +97,15 @@ class HostEngine(
         val mode: ListenMode
         val deadlineMs: Long
 
-        /** A yes/no question. [onSilence] runs if nobody answers, which may mean nobody is in the car. */
+        /**
+         * A yes/no question. [onSilence] runs if nobody answers, which may mean nobody is in the car.
+         * [picture] is that of the place the question is about, if it has one.
+         */
         class YesNo(
             val kind: SegmentKind,
             val title: String,
             val question: String,
+            val picture: Illustration?,
             override val deadlineMs: Long,
             val onYes: (MutableList<Action>) -> Unit,
             val onNo: (MutableList<Action>) -> Unit,
@@ -179,6 +190,17 @@ class HostEngine(
     private val stopsInOrder: List<Stop> = pkg.stops.sortedBy { stopKm.getValue(it.id) }
     private val players: List<String> = config.players.ifEmpty { listOf("가족") }
     private val spotPicker = SpotPicker(pkg, geometry)
+
+    /**
+     * The picture of the place each question is about, for the places that have one: a question on
+     * a place keeps that place's picture on the card, from the question to its answer.
+     */
+    private val questionPicture: Map<String, Illustration> = HashMap<String, Illustration>().apply {
+        for (poi in pkg.pois) {
+            val picture = poi.illustration ?: continue
+            for (question in poi.quiz) put(question.id, picture)
+        }
+    }
 
     /** The host's 끝말잇기 words, so that "고양이요" is heard as 고양이 rather than 고양 with 이요. */
     private val knownWords: Set<String> = words.toSet()
@@ -275,6 +297,7 @@ class HostEngine(
             is Signal.Utterance -> onUtterance(signal.text, out)
             is Signal.SpeechFinished -> onSpeechFinished(signal.utteranceId, out)
             Signal.SkipPressed -> skip(out)
+            is Signal.OfferTapped -> onOfferTapped(signal.index, out)
             Signal.DestinationArrived -> onArrived(out)
         }
         decide(out)
@@ -690,7 +713,8 @@ class HostEngine(
         val poi = poisInOrder.firstOrNull { storyDue(it) } ?: return false
         val variant = chooseVariant(poi.story, windowSeconds(except = poi)) ?: return false
         told.add(poi.id)
-        start(Segment(SegmentKind.STORY, poi.story.title, placeLabel(poi), Speech.sentences(variant.text)) {}, out)
+        val sentences = Speech.sentences(variant.text)
+        start(Segment(SegmentKind.STORY, poi.story.title, placeLabel(poi), sentences, picture = poi.illustration) {}, out)
         return true
     }
 
@@ -718,7 +742,7 @@ class HostEngine(
         if (poiKm.getValue(poi.id) - progressKm > config.storyLeadKm) sentences.add("조금 있으면 지나갈 ${poi.name} 이야기예요.")
         sentences.addAll(Speech.sentences(variant.text))
         told.add(poi.id)
-        start(Segment(SegmentKind.STORY, poi.story.title, placeLabel(poi), sentences) {}, out)
+        start(Segment(SegmentKind.STORY, poi.story.title, placeLabel(poi), sentences, picture = poi.illustration) {}, out)
     }
 
     private fun nextUntoldPoi(): Poi? = poisInOrder.firstOrNull {
@@ -852,7 +876,7 @@ class HostEngine(
         sentences.add(question)
 
         val title = category.title()
-        start(Segment(SegmentKind.RECOMMENDATION, title, spots.first().area, sentences, spots) { done ->
+        start(Segment(SegmentKind.RECOMMENDATION, title, spots.first().area, sentences, spots, choosable = true) { done ->
             listening = Listening.Choice(spots, title, question, nowMs + config.choiceTimeoutMs)
             done.add(Action.Listen(ListenMode.CHOICE, config.choiceTimeoutMs, choiceHints(spots)))
         }, out)
@@ -933,6 +957,31 @@ class HostEngine(
         cancelListening(out)
         addWaypoint(spot.toWaypoint(), out)
         notice("네, ${Korean.eulReul(spot.name)} 경유지로 추가했어요.", out)
+    }
+
+    /**
+     * A touch on the tile of the spot at [index] among those on the screen. It chooses that spot
+     * exactly as naming it would, and without waiting for the host to finish reading the list:
+     * whoever touches a tile has decided.
+     *
+     * It counts only while the car is parked. While it moves the one touch control is the skip
+     * button, and the rule is kept here rather than left to the screen, so that a tile a screen
+     * forgot to switch off still does nothing. It also counts only for spots that can be chosen:
+     * the destination tip and the spots described after arrival are on the screen as well, but
+     * naming one of those chooses nothing, so touching one must not either.
+     */
+    private fun onOfferTapped(index: Int, out: MutableList<Action>) {
+        if (!parked) return
+        val current = segment
+        val waiting = listening
+        val spots = when {
+            current != null -> if (current.choosable) current.offers else return
+            waiting is Listening.Choice -> waiting.spots
+            else -> return
+        }
+        val spot = spots.getOrNull(index) ?: return
+        abandonSegment(out)
+        choose(spot, out)
     }
 
     /**
@@ -1057,7 +1106,7 @@ class HostEngine(
             sentences.add(question.choices.mapIndexed { i, choice -> "${i + 1}번 $choice" }.joinToString(", ") + ".")
         }
         val title = "${round.name} ${round.index + 1}/${round.questions.size}"
-        start(Segment(round.kind, title, "$player 차례", sentences) { done ->
+        start(Segment(round.kind, title, "$player 차례", sentences, picture = questionPicture[question.id]) { done ->
             listening = Listening.QuizReply(question, player, round.kind, nowMs + config.answerTimeoutMs)
             done.add(Action.Listen(ListenMode.QUIZ_ANSWER, config.answerTimeoutMs, question.answers))
         }, out)
@@ -1080,7 +1129,8 @@ class HostEngine(
         }
         sentences.addAll(Speech.sentences(waiting.question.explanation))
         val title = if (correct) "정답!" else "정답은 $answer"
-        start(Segment(waiting.kind, title, waiting.player, sentences) { done -> afterAnswer(done) }, out)
+        val picture = questionPicture[waiting.question.id]
+        start(Segment(waiting.kind, title, waiting.player, sentences, picture = picture) { done -> afterAnswer(done) }, out)
     }
 
     private fun afterAnswer(out: MutableList<Action>) {
@@ -1221,11 +1271,13 @@ class HostEngine(
             return
         }
         val question = "쉬는 동안, 곧 지나갈 ${next.name} 이야기를 들을까요?"
-        start(Segment(SegmentKind.REST, next.story.title, placeLabel(next), listOf(greeting, question)) { done ->
+        val sentences = listOf(greeting, question)
+        start(Segment(SegmentKind.REST, next.story.title, placeLabel(next), sentences, picture = next.illustration) { done ->
             askYesNo(
                 kind = SegmentKind.REST,
                 title = next.story.title,
                 question = question,
+                picture = next.illustration,
                 onYes = { yes -> tellRestStory(next, yes) },
                 onNo = { no -> notice("네, 편히 쉬세요.", no) },
                 onSilence = {},
@@ -1237,7 +1289,8 @@ class HostEngine(
     /** Parked, so there is time for the long version, and for the quiz final after it. */
     private fun tellRestStory(poi: Poi, out: MutableList<Action>) {
         told.add(poi.id)
-        start(Segment(SegmentKind.REST, poi.story.title, placeLabel(poi), Speech.sentences(poi.story.longest.text)) { done ->
+        val sentences = Speech.sentences(poi.story.longest.text)
+        start(Segment(SegmentKind.REST, poi.story.title, placeLabel(poi), sentences, picture = poi.illustration) { done ->
             startQuiz(isFinal = true, out = done)
         }, out)
     }
@@ -1298,9 +1351,10 @@ class HostEngine(
         onYes: (MutableList<Action>) -> Unit,
         onNo: (MutableList<Action>) -> Unit,
         onSilence: (MutableList<Action>) -> Unit,
-        out: MutableList<Action>
+        out: MutableList<Action>,
+        picture: Illustration? = null
     ) {
-        listening = Listening.YesNo(kind, title, question, nowMs + config.yesNoTimeoutMs, onYes, onNo, onSilence)
+        listening = Listening.YesNo(kind, title, question, picture, nowMs + config.yesNoTimeoutMs, onYes, onNo, onSilence)
         out.add(Action.Listen(ListenMode.YES_NO, config.yesNoTimeoutMs, YES_NO_WORDS))
     }
 
@@ -1345,31 +1399,42 @@ class HostEngine(
     fun snapshot(): HostSnapshot {
         val current = segment
         val waiting = listening
+        val offers = when {
+            current != null -> current.offers
+            waiting is Listening.Choice -> waiting.spots
+            else -> emptyList()
+        }
         val card = if (current != null) {
             Card(
                 kind = current.kind,
                 title = current.title,
                 subtitle = current.subtitle,
                 caption = current.sentences[current.index.coerceAtMost(current.sentences.size - 1)],
-                progress = (current.index + 1).toFloat() / current.sentences.size
+                progress = (current.index + 1).toFloat() / current.sentences.size,
+                illustration = illustration(current.kind, current.picture, offers)
             )
         } else {
             // Every kind of question has its own card, so the screen never shows the idle card
-            // while the host is waiting for an answer.
+            // while the host is waiting for an answer. The picture stays the one the question was
+            // asked under, so it does not change when the host stops talking and starts to listen.
             when (waiting) {
-                is Listening.YesNo -> Card(waiting.kind, "듣고 있어요", waiting.title, waiting.question, 1f)
-                is Listening.QuizReply -> Card(waiting.kind, "듣고 있어요", "${waiting.player} 차례", waiting.question.prompt, 1f)
-                is Listening.Choice -> Card(SegmentKind.RECOMMENDATION, "듣고 있어요", waiting.title, waiting.question, 1f)
+                is Listening.YesNo ->
+                    Card(waiting.kind, "듣고 있어요", waiting.title, waiting.question, 1f, illustration(waiting.kind, waiting.picture))
+                is Listening.QuizReply -> {
+                    val picture = illustration(waiting.kind, questionPicture[waiting.question.id])
+                    Card(waiting.kind, "듣고 있어요", "${waiting.player} 차례", waiting.question.prompt, 1f, picture)
+                }
+                is Listening.Choice -> {
+                    val picture = illustration(SegmentKind.RECOMMENDATION, null, offers)
+                    Card(SegmentKind.RECOMMENDATION, "듣고 있어요", waiting.title, waiting.question, 1f, picture)
+                }
                 is Listening.WordTurn ->
                     Card(SegmentKind.GAME, "듣고 있어요", "${waiting.player} 차례", "${startSound(waiting.syllable)} 시작하는 말", 1f)
                 null -> null
             }
         }
-        val offers = when {
-            current != null -> current.offers
-            waiting is Listening.Choice -> waiting.spots
-            else -> emptyList()
-        }
+        // Everyone on the highest score leads, but only once somebody has scored.
+        val best = scores.values.maxOrNull() ?: 0
         return HostSnapshot(
             phase = phase,
             card = card,
@@ -1386,7 +1451,9 @@ class HostEngine(
             parked = parked,
             waypointName = accepted?.waypoint?.name,
             upNext = upNext(),
-            scores = scores.map { PlayerScore(it.key, it.value) },
+            // Only under a card that says or asks something: the idle card names the next place itself.
+            nextLine = if (card != null) upNext()?.let { "다음 · $it" } else null,
+            scores = scores.map { PlayerScore(it.key, it.value, leader = best > 0 && it.value == best) },
             places = poisInOrder.map { poi ->
                 val state = when (poi.id) {
                     in told -> PlaceState.TOLD
@@ -1395,9 +1462,19 @@ class HostEngine(
                 }
                 PlaceStatus(poi.id, poi.name, poiKm.getValue(poi.id), state)
             },
-            offers = offers
+            offers = offers,
+            // A list being read out says so itself; a choice being waited for is always open.
+            choosable = current?.choosable ?: (waiting is Listening.Choice)
         )
     }
+
+    /**
+     * The picture for a card of [kind]: that of the [place] it is about when its package picks one,
+     * else that of the category of the spots it [offers], else the one every card of its kind shows.
+     * A card therefore always has a picture, and the screen never has to choose one.
+     */
+    private fun illustration(kind: SegmentKind, place: Illustration?, offers: List<Spot> = emptyList()): Illustration =
+        place ?: offers.firstOrNull()?.category?.illustration ?: kind.illustration
 
     private fun upNext(): String? {
         val next = nextUntoldPoi() ?: return null

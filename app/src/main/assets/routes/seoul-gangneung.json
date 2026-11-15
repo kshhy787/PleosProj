@@ -177,6 +177,7 @@
       "area": "용인",
       "lat": 37.294,
       "lon": 127.202,
+      "illustration": "wheel",
       "story": {
         "title": "자연농원에서 에버랜드로",
         "variants": [
@@ -228,6 +229,7 @@
       "area": "이천",
       "lat": 37.272,
       "lon": 127.435,
+      "illustration": "pottery",
       "story": {
         "title": "도자기의 도시, 이천",
         "variants": [
@@ -282,6 +284,7 @@
       "area": "여주",
       "lat": 37.308,
       "lon": 127.603,
+      "illustration": "landmark",
       "story": {
         "title": "한글을 만든 임금님이 잠든 곳",
         "variants": [
@@ -341,6 +344,7 @@
       "area": "원주",
       "lat": 37.365,
       "lon": 128.05,
+      "illustration": "mountains",
       "story": {
         "title": "은혜 갚은 꿩의 산",
         "variants": [
@@ -391,6 +395,7 @@
       "area": "평창",
       "lat": 37.613,
       "lon": 128.366,
+      "illustration": "flower",
       "story": {
         "title": "달빛 아래 메밀꽃밭",
         "variants": [
@@ -451,6 +456,7 @@
       "area": "평창·강릉",
       "lat": 37.688,
       "lon": 128.757,
+      "illustration": "mountains",
       "story": {
         "title": "해발 832미터, 대관령",
         "variants": [
@@ -506,6 +512,7 @@
       "area": "강릉",
       "lat": 37.779,
       "lon": 128.879,
+      "illustration": "landmark",
       "story": {
         "title": "어머니와 아들이 태어난 집",
         "variants": [
@@ -616,6 +623,7 @@
       "lon": 128.9473,
       "reason": "강릉커피축제가 열리는 안목해변 근처의 커피거리예요.",
       "near": "destination",
+      "illustration": "coffee",
       "sources": [
         {
           "title": "위키백과: 안목해변",
@@ -652,6 +660,7 @@
       "lon": 128.9028,
       "reason": "물이 거울처럼 맑다고 해서 이름이 붙은 호수예요.",
       "near": "destination",
+      "illustration": "sea",
       "sources": [
         {
           "title": "위키백과: 경포호",

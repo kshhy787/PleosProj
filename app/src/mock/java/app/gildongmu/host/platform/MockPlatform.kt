@@ -133,6 +133,8 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
         screen.captions = true
         screen.onSkip = { session?.dispatch(Signal.SkipPressed) }
         screen.onShortcut = { text -> onSay(text) }
+        // Sent whenever a tile is touched; whether a touch may choose a spot is the host's rule.
+        screen.onOfferTapped = { index -> session?.dispatch(Signal.OfferTapped(index)) }
 
         // Before the speaker exists, because the speaker may have something to say about itself at once.
         panel.setVoiceStatus("준비 중")
@@ -279,7 +281,7 @@ class MockPlatform(private val activity: Activity, private val screen: HostScree
          * Shown in the diagnostics, to tell from a screenshot which version of the code is running.
          * Change it whenever the app's behaviour changes; add " · 2" and so on for a second build on one day.
          */
-        const val BUILD_NOTE = "2026-11-15 · 2"
+        const val BUILD_NOTE = "2026-11-16"
         const val MICROPHONE_REQUEST = 1
     }
 }

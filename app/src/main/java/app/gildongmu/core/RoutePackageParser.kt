@@ -76,9 +76,18 @@ object RoutePackageParser {
                 variants = story.objects("variants").map { StoryVariant(it.int("seconds"), it.string("text")) }
             ),
             quiz = o.objects("quiz").map(::question),
-            sources = o.objects("sources").map { SourceRef(it.string("title"), it.string("url")) }
+            sources = o.objects("sources").map { SourceRef(it.string("title"), it.string("url")) },
+            illustration = illustration(o)
         )
     }
+
+    /**
+     * The picture a place or a spot picks, if any. A key this app does not know reads as none
+     * rather than as an error: the pictures are drawn by the app, so a newer app may know more of
+     * them, and a package written for it must still load here, with the picture of the content's
+     * kind instead. Typing mistakes are caught where packages are written, by the pipeline's check.
+     */
+    private fun illustration(o: JsonObject): Illustration? = Illustration.of(o.optString("illustration"))
 
     private fun question(o: JsonObject) = QuizQuestion(
         id = o.string("id"),
@@ -107,7 +116,8 @@ object RoutePackageParser {
             location = point(o),
             reason = o.string("reason"),
             near = o.optString("near"),
-            sources = o.objects("sources").map { SourceRef(it.string("title"), it.string("url")) }
+            sources = o.objects("sources").map { SourceRef(it.string("title"), it.string("url")) },
+            illustration = illustration(o)
         )
     }
 

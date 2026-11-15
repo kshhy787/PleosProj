@@ -4,6 +4,12 @@ The model writes the stories; these checks decide whether they are used. A story
 numbers that appear in its source text, every quiz question must quote the sentence it rests on,
 and everything must be speakable. The same structural rules the app enforces when it loads a
 package (app/.../core/RoutePackageParser.kt) are enforced here before one is written.
+
+One rule is stricter here than in the app. A place or a spot may name the picture for its card
+with `illustration`, one of ILLUSTRATIONS. The app reads a key it does not know as no picture, so
+that a package written for a newer app still loads; here an unknown key is a problem, because for
+whoever is writing a package it is almost always a typing mistake, and the app would hide it by
+quietly showing the picture of the content's kind instead.
 """
 
 from __future__ import annotations
@@ -25,6 +31,9 @@ _ON_THE_SPOT_OPENINGS = ("지금 지나", "지금 보이", "지금 달리", "여
 
 # The same values the app accepts (core/Model.kt: SpotCategory, QuizKind, Spot.NEAR_DESTINATION).
 SPOT_CATEGORIES = ("food", "sight", "cafe")
+
+# The pictures the app can draw (core/Signals.kt: Illustration). A place or a spot may pick one.
+ILLUSTRATIONS = ("mountains", "bowl", "landmark", "star", "cup", "road", "sea", "flower", "pottery", "wheel", "coffee")
 
 # The app leaves out a spot once the car is this far past where the spot meets the route
 # (core/SpotPicker.kt), so a rest stop's spot must not meet the route earlier than this before the stop.
@@ -151,6 +160,7 @@ def package_problems(package: dict[str, Any]) -> list[str]:
             bad = speech.unspeakable_characters(text)
             if bad:
                 problems.append(f"poi {label!r}: unspeakable characters {' '.join(bad)}")
+        problems.extend(_illustration_problems(poi, f"poi {label!r}"))
         questions.extend(poi.get("quiz") or [])
 
     stop_ids = {stop.get("id") for stop in package.get("stops") or []}
@@ -182,6 +192,7 @@ def package_problems(package: dict[str, Any]) -> list[str]:
         sources = spot.get("sources") or []
         if not sources or not all(source.get("title") and source.get("url") for source in sources):
             problems.append(f"spot {label!r} needs at least one source with a title and url")
+        problems.extend(_illustration_problems(spot, f"spot {label!r}"))
         stop = stops_by_id.get(near)
         if geometry and stop and _is_position(spot):
             before = geometry.project((stop["lat"], stop["lon"])).route_km - geometry.project((spot["lat"], spot["lon"])).route_km
@@ -213,6 +224,13 @@ def package_problems(package: dict[str, Any]) -> list[str]:
         if choices and (len(choices) < 2 or sum(1 for c in choices if c in answers) != 1):
             problems.append(f"question {label!r} must have two or more choices, exactly one of them in answers")
     return problems
+
+
+def _illustration_problems(item: dict[str, Any], what: str) -> list[str]:
+    """The key is optional, so leaving it out is fine; one the app cannot draw is not (see the module docstring)."""
+    if "illustration" not in item or item["illustration"] in ILLUSTRATIONS:
+        return []
+    return [f"{what} has illustration {item['illustration']!r} (use one of: {', '.join(ILLUSTRATIONS)})"]
 
 
 def _is_position(value: dict[str, Any]) -> bool:

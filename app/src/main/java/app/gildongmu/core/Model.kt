@@ -49,7 +49,12 @@ data class QuizQuestion(
 /** Where a fact in a story or quiz came from. */
 data class SourceRef(val title: String, val url: String)
 
-/** A place along the route that the host can talk about. */
+/**
+ * A place along the route that the host can talk about.
+ *
+ * [illustration] is the picture for cards about this place, when its package picks one; without it
+ * such a card shows the picture of its kind (see [SegmentKind.illustration]).
+ */
 data class Poi(
     val id: String,
     val name: String,
@@ -57,7 +62,8 @@ data class Poi(
     val location: GeoPoint,
     val story: Story,
     val quiz: List<QuizQuestion>,
-    val sources: List<SourceRef>
+    val sources: List<SourceRef>,
+    val illustration: Illustration? = null
 )
 
 /** Somewhere the host may suggest stopping: a rest area, optionally with chargers. */
@@ -68,11 +74,14 @@ data class Stop(
     val hasCharger: Boolean
 )
 
-/** What a [Spot] offers. [key] is how a route package writes it. */
-enum class SpotCategory(val key: String) {
-    FOOD("food"),
-    SIGHT("sight"),
-    CAFE("cafe");
+/**
+ * What a [Spot] offers. [key] is how a route package writes it; [illustration] is the picture for a
+ * spot of this category that has none of its own, and for a card that recommends such spots.
+ */
+enum class SpotCategory(val key: String, val illustration: Illustration) {
+    FOOD("food", Illustration.BOWL),
+    SIGHT("sight", Illustration.LANDMARK),
+    CAFE("cafe", Illustration.COFFEE);
 
     companion object {
         fun of(key: String): SpotCategory? = entries.firstOrNull { it.key == key }
@@ -84,6 +93,8 @@ enum class SpotCategory(val key: String) {
  *
  * [reason] is one short spoken sentence on why to go. [near] says which part of the trip the spot
  * belongs to: a stop's id, [NEAR_DESTINATION], or null when it is simply somewhere along the way.
+ * [illustration] is the picture for the spot's tile, when its package picks one; without it the
+ * tile shows the picture of the spot's [category].
  */
 data class Spot(
     val id: String,
@@ -93,7 +104,8 @@ data class Spot(
     val location: GeoPoint,
     val reason: String,
     val near: String?,
-    val sources: List<SourceRef>
+    val sources: List<SourceRef>,
+    val illustration: Illustration? = null
 ) {
     companion object {
         const val NEAR_DESTINATION = "destination"
@@ -117,8 +129,8 @@ fun Spot.toWaypoint() = Waypoint(id, name, location)
  * Everything the host needs for one route, prepared before departure.
  *
  * Nothing in here is generated while driving: the content pipeline builds a package when the route
- * is known, and the car only plays it back. [spots] and [funQuiz] are optional in the file, so a
- * package written before they existed still loads.
+ * is known, and the car only plays it back. [spots] and [funQuiz] are optional in the file, and so
+ * is the `illustration` of a place or a spot, so a package written before they existed still loads.
  */
 data class RoutePackage(
     val id: String,

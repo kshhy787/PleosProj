@@ -25,7 +25,7 @@ object Fixtures {
 
     /**
      * A spot [km] along the road and [eastKm] off to the side of it. Its reason, "<name> 이유예요.",
-     * tells in a test which spot the host is talking about.
+     * tells in a test which spot the host is talking about. It has a picture only when given one.
      */
     fun spot(
         id: String,
@@ -33,7 +33,8 @@ object Fixtures {
         km: Double,
         category: SpotCategory = SpotCategory.FOOD,
         near: String? = null,
-        eastKm: Double = 0.0
+        eastKm: Double = 0.0,
+        illustration: Illustration? = null
     ): Spot {
         val road = at(km)
         return Spot(
@@ -44,7 +45,8 @@ object Fixtures {
             location = GeoPoint(road.lat, road.lon + eastKm * degreesPerKm / cos(Math.toRadians(road.lat))),
             reason = "$name 이유예요.",
             near = near,
-            sources = emptyList()
+            sources = emptyList(),
+            illustration = illustration
         )
     }
 
@@ -64,11 +66,15 @@ object Fixtures {
         sources = emptyList()
     )
 
-    /** The road with its places and rest areas. Spots and fun questions are added only when given. */
+    /**
+     * The road with its places and rest areas. Spots and fun questions are added only when given,
+     * and a place picks a picture only when [pictures] names one for its id.
+     */
     fun route(
         generalQuiz: List<QuizQuestion> = emptyList(),
         spots: List<Spot> = emptyList(),
-        funQuiz: List<QuizQuestion> = emptyList()
+        funQuiz: List<QuizQuestion> = emptyList(),
+        pictures: Map<String, Illustration> = emptyMap()
     ) = RoutePackage(
         id = "test",
         title = "시험 경로",
@@ -79,7 +85,7 @@ object Fixtures {
             poi("a", "가나", 20.0, question("a1", "가나 문제 하나?", "사과"), question("a2", "가나 문제 둘?", "832")),
             poi("b", "다라", 50.0, question("b1", "다라 문제 하나?", "바다")),
             poi("c", "마바", 80.0)
-        ),
+        ).map { it.copy(illustration = pictures[it.id]) },
         stops = listOf(
             Stop("s1", "하나휴게소", at(30.0), hasCharger = true),
             Stop("s2", "두리휴게소", at(60.0), hasCharger = false),

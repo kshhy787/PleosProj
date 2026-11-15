@@ -1,6 +1,7 @@
 import copy
+import re
 
-from conftest import LONG, SHORT, SOURCE, good_draft
+from conftest import LONG, REPO, SHORT, SOURCE, good_draft
 from gildongmu_pipeline import check
 
 
@@ -106,6 +107,38 @@ def test_reports_broken_spots_and_fun_questions(bundled):
         "kind 'joke'", "question 'riddle-soap' needs at least one answer", "funQuiz question 'riddle-chair': unspeakable",
     ):
         assert fragment in problems, fragment
+
+
+def test_an_illustration_must_be_one_the_app_can_draw(bundled):
+    # The app shows the picture of the content's kind for a key it does not know, which would hide
+    # a typing mistake; the check names the keys there are.
+    assert any("illustration" in poi for poi in bundled["pois"]) and any("illustration" in spot for spot in bundled["spots"])
+    broken = copy.deepcopy(bundled)
+    broken["pois"][0]["illustration"] = "mountain"
+    broken["spots"][0]["illustration"] = "Sea"
+    broken["spots"][1]["illustration"] = None
+    problems = "\n".join(check.package_problems(broken))
+    for fragment in (
+        f"poi {broken['pois'][0]['id']!r} has illustration 'mountain'", f"spot {broken['spots'][0]['id']!r} has illustration 'Sea'",
+        f"spot {broken['spots'][1]['id']!r} has illustration None", "use one of: mountains, bowl, landmark, star, cup, road, sea,",
+    ):
+        assert fragment in problems, fragment
+
+
+def test_an_illustration_is_optional_and_every_known_key_passes(bundled):
+    for item in (*bundled["pois"], *bundled["spots"]):
+        item.pop("illustration", None)
+    assert check.package_problems(bundled) == []
+    for key in check.ILLUSTRATIONS:
+        bundled["pois"][0]["illustration"] = bundled["spots"][0]["illustration"] = key
+        assert check.package_problems(bundled) == [], key
+
+
+def test_the_illustration_keys_are_the_ones_the_app_draws():
+    # The list is kept by hand in two languages; this reads the app's from its source.
+    source = (REPO / "app/src/main/java/app/gildongmu/core/Signals.kt").read_text(encoding="utf-8")
+    declared = source[source.index("enum class Illustration"):source.index("companion object", source.index("enum class Illustration"))]
+    assert re.findall(r'^\s+[A-Z]+\("([a-z]+)"\)', declared, flags=re.MULTILINE) == list(check.ILLUSTRATIONS)
 
 
 def test_a_stops_spot_must_not_meet_the_route_well_before_the_stop(bundled):

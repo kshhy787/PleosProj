@@ -21,10 +21,14 @@ Be precise about what has and has not been verified when you report results, and
 `README.md` ("지금 상태") when any of it changes.
 
 - `app.gildongmu.core` (host logic, pure Kotlin): unit-tested, including a full scripted
-  Seoul → Gangneung drive. All 309 tests also pass through Gradle (`testMockDebugUnitTest`). This
-  is the part to trust. The phase-2 features of 2026-11-15 (spot recommendations that add a
-  waypoint, riddles, 끝말잇기, the destination tip), and the fixes after that day's review, are
-  unit-tested only, not yet used in the app.
+  Seoul → Gangneung drive. All its tests also pass through Gradle (`testMockDebugUnitTest`: 382
+  on 2026-11-15, 363 of them for `core` and 19 for the palette and the pictures). This is the
+  part to trust. The phase-2 features of 2026-11-15 (spot recommendations that add a waypoint,
+  riddles, 끝말잇기, the destination tip), and the fixes after that day's review, are unit-tested
+  only; of them, only asking for somewhere to eat and choosing a spot has been used in the app.
+  The same goes for the rules the phase-3 screens of that day rest on: the tone and picture of
+  each card, choosing a spot by touching its tile, who leads the scoreboard, the arrangement for
+  each window (`ScreenFit`), and where the route strip's names go (`RouteStripPlan`).
 - Android code (`app.gildongmu.host`, the `mock` source set): run on 2026-11-12 as `mockDebug` on
   the Pleos Connect emulator (Android 14, API 34, image `release_connect_v2.1.0`), in a
   1682×1210 dp window with the demo panel open. The whole scripted drive played to Gangneung; the
@@ -51,8 +55,23 @@ Be precise about what has and has not been verified when you report results, and
   the layouts for narrow or low windows have been tested only as rules and never seen on a screen.
   On 2026-11-14 a toast the app showed was not in a screenshot taken about a second later, and the
   image's system UI logged "Attempt to hide non-current toast"; no other toast was tried, so put
-  messages in the app's own views. If something on screen or in speech misbehaves, suspect this
-  layer first, not the core.
+  messages in the app's own views. On 2026-11-15 the screens were rebuilt (a picture and a tone
+  colour on the card, tiles on the recommendation card, and on the parked screen a scoreboard, a
+  route strip and one row of buttons), so everything above was seen on the screen before that.
+  The new screen was looked at once the same day, as `mockDebug` on the Pleos emulator in the
+  1682×1172 dp window with its bottom under the bar and the demo panel open: the briefing and
+  rest cards, the recommendation card with three full tiles (moving and parked), and the parked
+  screen's card, scoreboard and the top half of the route strip drew without clipping or
+  overlap, and a touch on a tile while parked added that spot as a waypoint. Story and quiz
+  cards were seen only in a build from earlier that day, before the card's contents were moved
+  to the middle of its height. With the panel hidden only the waiting card was seen. Not seen:
+  the route strip's names and the three shortcut buttons (under the bar; the view hierarchy has
+  them where `ScreenFit` puts them), the destination tip's single tile, the arrival, the pleos
+  build's screen (compiled only), and every arrangement for a narrow or low window. During that
+  look another adb client was driving the same emulator, and the drive was paused once by a
+  press that was not ours. `ScreenFit`'s comment lists every piece of the three screens with
+  its size: change a size in the views and there together. If something on screen or in speech
+  misbehaves, suspect this layer first, not the core.
 - Gradle build files: on 2026-11-12 `assembleMockDebug` and `testMockDebugUnitTest` succeeded on
   Windows (Gradle 9.3.1, AGP 9.1.1). The Gradle daemon ran on the JetBrains Runtime 25 that comes
   with Android Studio, not on the JDK 17 in `JAVA_HOME`. The daemon's JDK is set by
@@ -81,7 +100,8 @@ app/src/main/java/app/gildongmu/core/    host engine and its helpers; no Android
     HostEngine.kt      state machine: handle(signal, nowMs) -> actions
     Signals.kt         Signal (car -> host), Action (host -> car), HostSnapshot (for the screen)
     SpeechGuard.kt     decides when a spoken sentence is over, whatever the engine does
-    AudioFocusKeeper.kt, ScreenFit.kt, ParkedDetector.kt, Korean.kt, Understanding.kt ...
+    ScreenFit.kt, RouteStripPlan.kt, CardText.kt   what the screen shows and where, decided off it
+    AudioFocusKeeper.kt, ParkedDetector.kt, Korean.kt, Understanding.kt ...
     sim/               MockDrive (scripted car), Scenario, DemoSession
 app/src/main/java/app/gildongmu/host/    Activity, screen (views built in code), speech wrappers
 app/src/mock/                            mock build: demo panel, scripted drive, Android speech

@@ -8,11 +8,17 @@ import android.util.TypedValue
 import android.view.View
 import app.gildongmu.core.PlaceState
 import app.gildongmu.core.PlaceStatus
+import app.gildongmu.core.RouteStripPlan
 
 /**
- * The trip as a straight line: places as dots (told, passed or still ahead), and the car.
+ * The trip as a straight line: the places already told or passed as filled dots, the places still
+ * ahead as hollow rings, and the car, marked "지금 여기".
  * It is a diagram rather than a map, which is all the parked screen needs to answer "where have we
  * been, what is still to come".
+ *
+ * Where each dot and each name goes is [RouteStripPlan]'s decision, because names that run into
+ * each other cannot be seen from a desk; this view only draws the plan. It is meant to be
+ * `ScreenFit.ROUTE_STRIP_DP` high: the line in the middle, one row of names above it and one below.
  */
 class RouteStripView(context: Context) : View(context) {
 
@@ -22,17 +28,21 @@ class RouteStripView(context: Context) : View(context) {
 
     private val line = Paint(Paint.ANTI_ALIAS_FLAG)
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG)
     private val label = Paint(Paint.ANTI_ALIAS_FLAG)
 
     init {
+        background = Ui.rounded(Palette.SURFACE, Ui.dp(context, 28), Palette.OUTLINE, Ui.dp(context, 2))
         line.strokeCap = Paint.Cap.ROUND
+        ring.style = Paint.Style.STROKE
         label.textAlign = Paint.Align.CENTER
-        label.typeface = Typeface.DEFAULT
     }
 
     fun update(places: List<PlaceStatus>, lengthKm: Double, progressKm: Double) {
+        // The host reports several times a second, and a parked car goes nowhere.
+        if (places == this.places && lengthKm == this.lengthKm && progressKm == this.progressKm) return
         this.places = places
-        this.lengthKm = if (lengthKm > 0.0) lengthKm else 1.0
+        this.lengthKm = lengthKm
         this.progressKm = progressKm
         invalidate()
     }
@@ -40,39 +50,66 @@ class RouteStripView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val density = resources.displayMetrics.density
-        val inset = 48f * density
-        val left = inset
-        val right = width - inset
-        if (right <= left) return
+        label.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, LABEL_SP, resources.displayMetrics)
+        val plan = RouteStripPlan.of(width.toFloat(), RouteStripPlan.INSET_DP * density, places, lengthKm, progressKm, label.textSize)
+        if (plan.lineEnd <= plan.lineStart) return
         val y = height / 2f
-        fun x(km: Double) = left + (right - left) * (km / lengthKm).coerceIn(0.0, 1.0).toFloat()
+        val above = y - ABOVE_DP * density
+        val below = y + BELOW_DP * density
 
-        // The road: what is behind the car in the accent colour, what is ahead in grey.
+        // The road: what is behind the car in the story colour, what is ahead in grey.
         line.strokeWidth = 8f * density
         line.color = Palette.OUTLINE
-        canvas.drawLine(left, y, right, y, line)
-        line.color = Palette.ACCENT
-        canvas.drawLine(left, y, x(progressKm), y, line)
+        canvas.drawLine(plan.lineStart, y, plan.lineEnd, y, line)
+        line.color = Palette.STORY
+        canvas.drawLine(plan.lineStart, y, plan.carX, y, line)
 
-        label.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 15f, resources.displayMetrics)
-        for ((index, place) in places.withIndex()) {
-            val px = x(place.routeKm)
-            dot.color = when (place.state) {
-                PlaceState.TOLD -> Palette.GOOD
-                PlaceState.PASSED -> Palette.OUTLINE
-                PlaceState.AHEAD -> Palette.TEXT_SECONDARY
+        label.typeface = Typeface.DEFAULT
+        for (mark in plan.marks) {
+            val state = mark.place.state
+            // Every place stands a little clear of the road. A told place has the colour of the
+            // road behind the car, and without the gap it is a bump in the line; and the road
+            // must not show through a ring.
+            dot.color = Palette.SURFACE
+            canvas.drawCircle(mark.x, y, 12f * density, dot)
+            if (state == PlaceState.AHEAD) {
+                ring.strokeWidth = 3f * density
+                ring.color = Palette.TEXT_SECONDARY
+                canvas.drawCircle(mark.x, y, 7.5f * density, ring)
+            } else {
+                // A story that was told is what the trip was for; a place only driven past is dimmer.
+                dot.color = if (state == PlaceState.TOLD) Palette.STORY else Palette.over(Palette.STORY, PASSED_ALPHA)
+                canvas.drawCircle(mark.x, y, 9f * density, dot)
             }
-            canvas.drawCircle(px, y, 9f * density, dot)
-            label.color = if (place.state == PlaceState.TOLD) Palette.TEXT else Palette.TEXT_SECONDARY
-            // Alternate above and below the line so neighbouring names do not collide.
-            val textY = if (index % 2 == 0) y - 22f * density else y + 36f * density
-            canvas.drawText(place.name, px, textY, label)
+            label.color = if (state == PlaceState.TOLD) Palette.TEXT else Palette.TEXT_SECONDARY
+            when (mark.side) {
+                RouteStripPlan.Side.ABOVE -> canvas.drawText(mark.place.name, mark.labelX, above, label)
+                RouteStripPlan.Side.BELOW -> canvas.drawText(mark.place.name, mark.labelX, below, label)
+                RouteStripPlan.Side.NONE -> Unit
+            }
         }
 
-        // The car.
+        // The car, over everything, and its label, which the plan keeps clear of the names.
         dot.color = Palette.TEXT
-        canvas.drawCircle(x(progressKm), y, 13f * density, dot)
-        dot.color = Palette.ACCENT
-        canvas.drawCircle(x(progressKm), y, 8f * density, dot)
+        canvas.drawCircle(plan.carX, y, 13f * density, dot)
+        dot.color = Palette.STORY
+        canvas.drawCircle(plan.carX, y, 8f * density, dot)
+        label.typeface = Typeface.DEFAULT_BOLD
+        label.color = Palette.TEXT
+        canvas.drawText(RouteStripPlan.CAR_LABEL, plan.carLabelX, above, label)
+    }
+
+    private companion object {
+        /** The size of the names. `ScreenFit.ROUTE_STRIP_DP` is the height of two rows of it around the line. */
+        const val LABEL_SP = 15f
+
+        /** From the line up to the baseline of the names above it: clear of the car's circle, 13 high. */
+        const val ABOVE_DP = 20f
+
+        /** From the line down to the baseline of the names below it: clear of a dot, 9 high. */
+        const val BELOW_DP = 34f
+
+        /** How much of the story colour a place that was passed without its story keeps. */
+        const val PASSED_ALPHA = 0.45f
     }
 }

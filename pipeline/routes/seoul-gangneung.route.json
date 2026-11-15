@@ -175,6 +175,7 @@
       "lon": 128.9473,
       "reason": "강릉커피축제가 열리는 안목해변 근처의 커피거리예요.",
       "near": "destination",
+      "illustration": "coffee",
       "sources": [
         {
           "title": "위키백과: 안목해변",
@@ -211,6 +212,7 @@
       "lon": 128.9028,
       "reason": "물이 거울처럼 맑다고 해서 이름이 붙은 호수예요.",
       "near": "destination",
+      "illustration": "sea",
       "sources": [
         {
           "title": "위키백과: 경포호",
